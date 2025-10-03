@@ -3012,25 +3012,30 @@ def display_email_reports_tab():
 
     col1, col2 = st.columns([2, 1])
     with col1:
+        # Initialize default values in session state
+        if 'include_ops_email' not in st.session_state:
+            st.session_state.include_ops_email = True
+        if 'email_additional_recipients' not in st.session_state:
+            st.session_state.email_additional_recipients = ''
+
         # Checkbox for operations@aurigincm.com
         include_ops_email = st.checkbox(
-            "operations@aurigincm.com",
-            value=st.session_state.get('include_ops_email', True),
-            key='checkbox_ops_email',
+            "✉️ operations@aurigincm.com",
+            value=True,
+            key='email_include_ops',
             help="Include operations@aurigincm.com in recipients"
         )
-        st.session_state.include_ops_email = include_ops_email
 
         additional_recipients = st.text_area(
             "Additional Recipients",
-            value=st.session_state.get('email_additional_recipients', ''),
             placeholder="user1@example.com, user2@example.com",
-            help="Enter additional email addresses (comma-separated)"
+            help="Enter additional email addresses (comma-separated)",
+            key='email_additional_input',
+            height=100
         )
-        st.session_state.email_additional_recipients = additional_recipients
 
     with col2:
-        # Calculate total recipients
+        # Calculate total recipients based on widget values
         all_recipients = []
 
         # Add operations@aurigincm.com if checked
@@ -3038,10 +3043,10 @@ def display_email_reports_tab():
             all_recipients.append('operations@aurigincm.com')
 
         # Add additional recipients
-        if additional_recipients:
+        if additional_recipients and additional_recipients.strip():
             additional = [email.strip() for email in additional_recipients.split(',') if email.strip()]
             for email in additional:
-                if email not in all_recipients:
+                if email and email not in all_recipients:
                     all_recipients.append(email)
 
         st.metric("Total Recipients", len(all_recipients))
@@ -3254,38 +3259,40 @@ def display_email_reports_tab():
 
     with col2:
         # Email subject suffix customization
-        st.caption("Subject suffix (optional)")
+        st.caption("📝 Subject suffix (optional)")
 
         # Preset options
         preset_options = ["None", "FnO position recon", "EOD FnO trade recon"]
         suffix_preset = st.radio(
-            "Select preset",
+            "Select preset:",
             options=preset_options,
             index=0,
             horizontal=False,
-            key='email_suffix_preset',
-            label_visibility="collapsed"
+            key='email_suffix_radio'
         )
 
         # Custom suffix input
         custom_suffix = st.text_input(
-            "Or enter custom suffix",
-            value=st.session_state.get('email_custom_suffix', ''),
+            "Or custom suffix:",
             placeholder="e.g., Preliminary",
-            key='email_custom_suffix_input',
-            label_visibility="collapsed"
+            key='email_custom_suffix',
+            help="Custom suffix overrides preset selection"
         )
-        st.session_state.email_custom_suffix = custom_suffix
 
-        # Determine final suffix
-        if custom_suffix.strip():
+        # Determine final suffix based on widget values
+        if custom_suffix and custom_suffix.strip():
             final_suffix = custom_suffix.strip()
         elif suffix_preset != "None":
             final_suffix = suffix_preset
         else:
             final_suffix = None
 
+        # Store in session state for email sending
         st.session_state.email_subject_suffix = final_suffix
+
+        # Show preview
+        if final_suffix:
+            st.caption(f"Preview: Aurigin | **{final_suffix}** | Date")
 
     with col3:
         # Send button
