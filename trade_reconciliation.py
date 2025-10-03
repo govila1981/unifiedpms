@@ -671,7 +671,7 @@ class TradeReconciler:
 
             # Format Expiry Dt as DD/MM/YYYY string
             if 'Expiry Dt' in output_df.columns:
-                output_df['Expiry Dt'] = pd.to_datetime(output_df['Expiry Dt'], errors='coerce').dt.strftime('%d/%m/%Y')
+                output_df['Expiry Dt'] = pd.to_datetime(output_df['Expiry Dt'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
 
             # Format TD as DD/MM/YYYY string, but preserve empty strings
             if 'TD' in output_df.columns:
@@ -680,7 +680,11 @@ class TradeReconciler:
                     if pd.isna(val) or val == '' or val is None:
                         return ''
                     try:
-                        return pd.to_datetime(val, errors='coerce').strftime('%d/%m/%Y')
+                        # Use dayfirst=True to parse as DD/MM/YYYY
+                        parsed_date = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                        if pd.notna(parsed_date):
+                            return parsed_date.strftime('%d/%m/%Y')
+                        return val
                     except:
                         return val
                 output_df['TD'] = output_df['TD'].apply(convert_td)
@@ -852,7 +856,7 @@ class TradeReconciler:
 
                     # Format Expiry Dt as date (not datetime)
                     if 'Expiry Dt' in matched_df.columns:
-                        matched_df['Expiry Dt'] = pd.to_datetime(matched_df['Expiry Dt'], errors='coerce').dt.date
+                        matched_df['Expiry Dt'] = pd.to_datetime(matched_df['Expiry Dt'], dayfirst=True, errors='coerce').dt.date
 
                     # Format TD as date only if it has valid values
                     if 'TD' in matched_df.columns:
@@ -860,7 +864,11 @@ class TradeReconciler:
                             if pd.isna(val) or val == '' or val is None:
                                 return ''
                             try:
-                                return pd.to_datetime(val, errors='coerce').date()
+                                # Use dayfirst=True to parse as DD/MM/YYYY
+                                parsed_date = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                                if pd.notna(parsed_date):
+                                    return parsed_date.date()
+                                return val
                             except:
                                 return val
                         matched_df['TD'] = matched_df['TD'].apply(convert_td)
@@ -903,11 +911,11 @@ class TradeReconciler:
 
                     # Format Expiry Dt as date (not datetime)
                     if 'Expiry Dt' in unmatched_clear_df.columns:
-                        unmatched_clear_df['Expiry Dt'] = pd.to_datetime(unmatched_clear_df['Expiry Dt'], errors='coerce').dt.date
+                        unmatched_clear_df['Expiry Dt'] = pd.to_datetime(unmatched_clear_df['Expiry Dt'], dayfirst=True, errors='coerce').dt.date
 
                     # Format TD as date (not datetime) - should be empty for unmatched
                     if 'TD' in unmatched_clear_df.columns:
-                        unmatched_clear_df['TD'] = pd.to_datetime(unmatched_clear_df['TD'], errors='coerce').dt.date
+                        unmatched_clear_df['TD'] = pd.to_datetime(unmatched_clear_df['TD'], dayfirst=True, errors='coerce').dt.date
                 else:
                     # Create empty dataframe with same structure as clearing
                     original_cols = [col for col in clearing_df.columns
@@ -960,7 +968,7 @@ class TradeReconciler:
 
                     # Format expiry_date as date (not datetime)
                     if 'expiry_date' in unmatched_broker_df.columns:
-                        unmatched_broker_df['expiry_date'] = pd.to_datetime(unmatched_broker_df['expiry_date'], errors='coerce').dt.date
+                        unmatched_broker_df['expiry_date'] = pd.to_datetime(unmatched_broker_df['expiry_date'], dayfirst=True, errors='coerce').dt.date
 
                     # Format TD as date only if it has valid values
                     if 'TD' in unmatched_broker_df.columns:
@@ -968,7 +976,11 @@ class TradeReconciler:
                             if pd.isna(val) or val == '' or val is None:
                                 return ''
                             try:
-                                return pd.to_datetime(val, errors='coerce').date()
+                                # Use dayfirst=True to parse as DD/MM/YYYY
+                                parsed_date = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                                if pd.notna(parsed_date):
+                                    return parsed_date.date()
+                                return val
                             except:
                                 return val
                         unmatched_broker_df['TD'] = unmatched_broker_df['TD'].apply(convert_td)
