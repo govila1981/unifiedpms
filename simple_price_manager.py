@@ -87,12 +87,15 @@ class SimplePriceManager:
                     logger.debug(f"Error loading row {idx}: {e}")
                     continue
 
+            # Count actual stocks with override prices (not dictionary entries)
+            stocks_with_prices = sum(1 for symbol in self.symbol_to_bloomberg.keys() if symbol in self.override_prices)
+
             logger.info(f"Loaded {loaded_count} stocks with {len(self.symbol_to_yahoo)} Yahoo codes")
-            logger.info(f"Loaded {len(self.override_prices)} override prices")
+            logger.info(f"Loaded {stocks_with_prices} stocks with override prices ({len(self.override_prices)} total mappings)")
 
             # Initialize master_prices with override prices
             self.master_prices = self.override_prices.copy()
-            self.price_source = f"Override prices ({len(self.override_prices)} loaded)"
+            self.price_source = f"Override prices ({stocks_with_prices} stocks loaded)"
 
             return True
 

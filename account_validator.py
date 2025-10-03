@@ -9,6 +9,13 @@ from typing import Optional, Tuple, Dict
 import pandas as pd
 from account_config import ACCOUNT_REGISTRY, get_account_by_cp_code, get_all_cp_codes
 
+# Import encrypted file handler
+try:
+    from encrypted_file_handler import decrypt_excel_file, read_csv_or_excel_with_password
+    ENCRYPTION_SUPPORT = True
+except ImportError:
+    ENCRYPTION_SUPPORT = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,69 +27,100 @@ class AccountValidator:
         self.trade_account = None
         self.validation_errors = []
 
-    def detect_account_in_file(self, file_content, file_type: str = "unknown") -> Optional[Dict]:
+    def detect_account_in_file(self, file_obj, file_type: str = "unknown") -> Optional[Dict]:
         """
-        Detect CP code in file content
+        Detect CP code in file - uses Stage 2's EXACT decryption method
 
         Args:
-            file_content: File content (bytes or text)
+            file_obj: File object (UploadedFile or similar)
             file_type: "position" or "trade" for logging
 
         Returns:
             Account dict if found, None otherwise
         """
         try:
-            # Convert to string for searching
-            search_text = ""
+            logger.info(f"Account detection for {file_type}: content_type={type(file_obj).__name__}")
 
-            # Try to read as structured data (Excel/CSV)
-            # This is more reliable than searching raw bytes
-            try:
-                # Try reading as CSV first
-                try:
-                    df = pd.read_csv(io.BytesIO(file_content) if isinstance(file_content, bytes) else io.StringIO(file_content))
-                    # Convert entire DataFrame to string for searching
-                    search_text = df.to_string()
-                    logger.debug(f"Successfully read {file_type} file as CSV")
-                except:
-                    # Try reading as Excel
+            df = None
+
+            # Try BOTH known passwords in order, using Stage 2's exact method
+            KNOWN_PASSWORDS = ["Aurigin2017", "Aurigin2024"]
+
+            if ENCRYPTION_SUPPORT:
+                for password in KNOWN_PASSWORDS:
                     try:
-                        df = pd.read_excel(io.BytesIO(file_content) if isinstance(file_content, bytes) else file_content,
-                                          sheet_name=0, header=None)  # Read without headers to get all rows
-                        # Convert entire DataFrame to string for searching
-                        search_text = df.to_string()
-                        logger.debug(f"Successfully read {file_type} file as Excel")
-                    except:
-                        # Fall back to text search
-                        if isinstance(file_content, bytes):
-                            try:
-                                search_text = file_content.decode('utf-8', errors='ignore')
-                            except:
-                                search_text = str(file_content)
+                        file_obj.seek(0)
+                        logger.info(f"Trying password '{password}' for {file_type} file")
+                        success, df, error = read_csv_or_excel_with_password(file_obj, password)
+
+                        if success and df is not None:
+                            logger.info(f"✓ Successfully read {file_type} file with '{password}' - {len(df)} rows, {len(df.columns)} columns")
+                            break
                         else:
-                            search_text = str(file_content)
-                        logger.debug(f"Using text search for {file_type} file")
-            except Exception as e:
-                logger.warning(f"Error reading {file_type} file as structured data: {e}")
-                # Fall back to text search
-                if isinstance(file_content, bytes):
-                    try:
-                        search_text = file_content.decode('utf-8', errors='ignore')
-                    except:
-                        search_text = str(file_content)
-                else:
-                    search_text = str(file_content)
+                            logger.debug(f"Password '{password}' failed: {error}")
+                            df = None
+                    except Exception as e:
+                        logger.debug(f"Password '{password}' exception: {e}")
+                        df = None
+                        continue
+
+            # If passwords didn't work, try reading without password (unencrypted file)
+            if df is None:
+                try:
+                    file_obj.seek(0)
+                    logger.info(f"Trying to read {file_type} file without password")
+                    success, df, error = read_csv_or_excel_with_password(file_obj, None)
+                    if success and df is not None:
+                        logger.info(f"✓ Read {file_type} file without password - {len(df)} rows, {len(df.columns)} columns")
+                    else:
+                        logger.warning(f"Failed to read {file_type} file: {error}")
+                except Exception as e:
+                    logger.warning(f"Could not read {file_type} file: {e}")
+
+            # If we successfully read as DataFrame, search all cells
+            search_text = ""
+            if df is not None:
+                # Log columns found
+                logger.info(f"{file_type} file has columns: {list(df.columns)}")
+
+                # Convert ALL cells to string and concatenate
+                for col in df.columns:
+                    # Convert each column to string and join
+                    col_text = df[col].astype(str).str.cat(sep=' ')
+                    search_text += " " + col_text
+
+                    # Log if this column might have CP codes
+                    if 'CP' in str(col).upper() or 'CODE' in str(col).upper():
+                        sample_values = df[col].head(3).tolist()
+                        logger.info(f"  Column '{col}' sample values: {sample_values}")
+
+                logger.info(f"Created search text from {len(df.columns)} columns, {len(df)} rows, total length: {len(search_text)} chars")
+            else:
+                logger.warning(f"Could not read {file_type} file - no DataFrame created")
+                return None
 
             # Normalize text for searching: uppercase
             search_text_upper = search_text.upper()
 
+            # Debug: Log search text sample (first 500 chars)
+            logger.debug(f"Search text sample for {file_type}: {search_text_upper[:500]}")
+
             # Search for each known CP code (case-insensitive)
             found_codes = []
-            for cp_code in get_all_cp_codes():
+            all_cp_codes = get_all_cp_codes()
+            logger.info(f"Searching for {len(all_cp_codes)} known CP codes in {file_type} file: {all_cp_codes}")
+
+            for cp_code in all_cp_codes:
                 # Check if CP code appears in text (case-insensitive)
-                if cp_code.upper() in search_text_upper:
+                # Also try without spaces/special chars to catch formatting variations
+                cp_code_normalized = cp_code.upper().replace(' ', '').replace('-', '')
+                search_normalized = search_text_upper.replace(' ', '').replace('-', '')
+
+                if cp_code.upper() in search_text_upper or cp_code_normalized in search_normalized:
                     found_codes.append(cp_code)
-                    logger.info(f"Found CP code {cp_code} in {file_type} file")
+                    logger.info(f"✓ Found CP code {cp_code} in {file_type} file")
+                else:
+                    logger.debug(f"✗ CP code {cp_code} not found in {file_type} file")
 
             # Validation
             if len(found_codes) == 0:
@@ -108,7 +146,7 @@ class AccountValidator:
 
     def detect_account_in_position_file(self, file_obj) -> Optional[Dict]:
         """
-        Detect account in position file
+        Detect account in position file (tries known passwords automatically)
 
         Args:
             file_obj: Uploaded file object from streamlit
@@ -117,12 +155,9 @@ class AccountValidator:
             Account dict if found, None otherwise
         """
         try:
-            # Read file content
             file_obj.seek(0)
-            content = file_obj.read()
+            account = self.detect_account_in_file(file_obj, "position")
             file_obj.seek(0)  # Reset for later use
-
-            account = self.detect_account_in_file(content, "position")
             self.position_account = account
             return account
 
@@ -132,7 +167,7 @@ class AccountValidator:
 
     def detect_account_in_trade_file(self, file_obj) -> Optional[Dict]:
         """
-        Detect account in trade file
+        Detect account in trade file (tries known passwords automatically)
 
         Args:
             file_obj: Uploaded file object from streamlit
@@ -141,12 +176,9 @@ class AccountValidator:
             Account dict if found, None otherwise
         """
         try:
-            # Read file content
             file_obj.seek(0)
-            content = file_obj.read()
+            account = self.detect_account_in_file(file_obj, "trade")
             file_obj.seek(0)  # Reset for later use
-
-            account = self.detect_account_in_file(content, "trade")
             self.trade_account = account
             return account
 

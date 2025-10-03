@@ -30,9 +30,73 @@ class OutputGenerator:
     def __init__(self, output_dir: str = "./output", account_prefix: str = ""):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
-        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # Fallback timestamp
+        self.trade_date_str = None  # Will be set from trade data (DD-MMM-YYYY format)
         self.missing_mappings = {'positions': [], 'trades': []}
         self.account_prefix = account_prefix  # e.g. "AURIGIN_" or ""
+
+    def _extract_trade_date(self, trades_df: pd.DataFrame) -> str:
+        """
+        Extract trade date from trades DataFrame and format as DD-MMM-YYYY
+
+        Args:
+            trades_df: Processed trades DataFrame (must contain TD column)
+
+        Returns:
+            Trade date in DD-MMM-YYYY format (e.g., "03-Oct-2024")
+        """
+        try:
+            # Try to find TD or Trade Date column
+            date_col = None
+            for col in ['TD', 'Trade Date', 'TradeDate', 'Date']:
+                if col in trades_df.columns:
+                    date_col = col
+                    break
+
+            if not date_col:
+                logger.warning(f"No date column found in trades. Available columns: {list(trades_df.columns)}")
+                raise ValueError("No date column found")
+
+            if trades_df.empty:
+                logger.warning("Trades dataframe is empty")
+                raise ValueError("Empty dataframe")
+
+            # Get first non-null date
+            non_null_dates = trades_df[date_col].dropna()
+            if non_null_dates.empty:
+                logger.warning(f"Column '{date_col}' has no non-null values")
+                raise ValueError("No non-null dates")
+
+            first_date = non_null_dates.iloc[0]
+            logger.info(f"Extracting trade date from column '{date_col}', first value: {first_date} (type: {type(first_date)})")
+
+            # Convert to datetime if needed
+            if isinstance(first_date, str):
+                # Try parsing common date formats with dayfirst=True
+                try:
+                    trade_date = pd.to_datetime(first_date, dayfirst=True)
+                    logger.info(f"Parsed date string '{first_date}' as: {trade_date}")
+                except:
+                    logger.error(f"Failed to parse date string: {first_date}")
+                    raise
+            else:
+                trade_date = pd.to_datetime(first_date)
+                logger.info(f"Converted date value to: {trade_date}")
+
+            # Format as DD-MMM-YYYY (e.g., 03-Oct-2024)
+            formatted_date = trade_date.strftime("%d-%b-%Y")
+            logger.info(f"Formatted trade date: {formatted_date}")
+            return formatted_date
+
+        except Exception as e:
+            logger.error(f"Could not extract trade date: {e}. Falling back to current date.")
+            import traceback
+            logger.error(traceback.format_exc())
+
+        # Fallback to current date
+        fallback_date = datetime.now().strftime("%d-%b-%Y")
+        logger.warning(f"Using fallback date: {fallback_date}")
+        return fallback_date
         
     def save_all_outputs(self,
                         parsed_trades_df: pd.DataFrame,
@@ -50,7 +114,11 @@ class OutputGenerator:
         Returns dictionary of file type to file path
         """
         output_files = {}
-        
+
+        # Extract trade date from PROCESSED trades (has TD column) for file naming (DD-MMM-YYYY format)
+        self.trade_date_str = self._extract_trade_date(processed_trades_df)
+        logger.info(f"Using trade date for file naming: {self.trade_date_str}")
+
         # Ensure all DataFrames have dates formatted properly
         parsed_trades_df = self._format_dates_in_dataframe(parsed_trades_df)
         starting_positions_df = self._format_dates_in_dataframe(starting_positions_df)
@@ -58,25 +126,25 @@ class OutputGenerator:
         final_positions_df = self._format_dates_in_dataframe(final_positions_df)
         
         # File 1: Parsed Trade File (original trades from parser)
-        parsed_trades_file = self.output_dir / f"{self.account_prefix}{file_prefix}_1_parsed_trades_{self.timestamp}.csv"
+        parsed_trades_file = self.output_dir / f"{self.account_prefix}{file_prefix}_1_parsed_trades_{self.trade_date_str}.csv"
         parsed_trades_df.to_csv(parsed_trades_file, index=False, date_format='%d/%m/%Y')
         output_files['parsed_trades'] = parsed_trades_file
         logger.info(f"Saved parsed trades to {parsed_trades_file}")
-        
+
         # File 2: Starting Position File
-        starting_pos_file = self.output_dir / f"{self.account_prefix}{file_prefix}_2_starting_positions_{self.timestamp}.csv"
+        starting_pos_file = self.output_dir / f"{self.account_prefix}{file_prefix}_2_starting_positions_{self.trade_date_str}.csv"
         starting_positions_df.to_csv(starting_pos_file, index=False, date_format='%d/%m/%Y')
         output_files['starting_positions'] = starting_pos_file
         logger.info(f"Saved starting positions to {starting_pos_file}")
-        
+
         # File 3: Processed Trade File (main output with strategies)
-        processed_trades_file = self.output_dir / f"{self.account_prefix}{file_prefix}_3_processed_trades_{self.timestamp}.csv"
+        processed_trades_file = self.output_dir / f"{self.account_prefix}{file_prefix}_3_processed_trades_{self.trade_date_str}.csv"
         processed_trades_df.to_csv(processed_trades_file, index=False, date_format='%d/%m/%Y')
         output_files['processed_trades'] = processed_trades_file
         logger.info(f"Saved processed trades to {processed_trades_file}")
-        
+
         # File 4: Final Position File
-        final_pos_file = self.output_dir / f"{self.account_prefix}{file_prefix}_4_final_positions_{self.timestamp}.csv"
+        final_pos_file = self.output_dir / f"{self.account_prefix}{file_prefix}_4_final_positions_{self.trade_date_str}.csv"
         final_positions_df.to_csv(final_pos_file, index=False, date_format='%d/%m/%Y')
         output_files['final_positions'] = final_pos_file
         logger.info(f"Saved final positions to {final_pos_file}")
@@ -105,6 +173,7 @@ class OutputGenerator:
                 starting_positions_df,
                 final_positions_df
             )
+            logger.info(f"Generated pre/post summary for email: {len(pre_post_summary) if pre_post_summary is not None else 0} rows")
 
             self._send_completion_email(
                 output_files=output_files,
@@ -131,7 +200,7 @@ class OutputGenerator:
             # Import position grouper
             from positions_grouper import PositionGrouper
 
-            output_file = self.output_dir / f"{self.account_prefix}{file_prefix}_{self.timestamp}.xlsx"
+            output_file = self.output_dir / f"{self.account_prefix}{file_prefix}_{self.trade_date_str}.xlsx"
             wb = Workbook()
 
             # Remove default sheet
@@ -394,11 +463,11 @@ class OutputGenerator:
         unique_symbols = unique_symbols.sort_values('Symbol')
         
         # Save to CSV
-        missing_file = self.output_dir / f"{self.account_prefix}MISSING_MAPPINGS_{self.timestamp}.csv"
+        missing_file = self.output_dir / f"{self.account_prefix}MISSING_MAPPINGS_{self.trade_date_str}.csv"
         unique_symbols.to_csv(missing_file, index=False, date_format='%d/%m/%Y')
 
         # Also create a template for easy addition to mapping file
-        template_file = self.output_dir / f"{self.account_prefix}MAPPING_TEMPLATE_{self.timestamp}.csv"
+        template_file = self.output_dir / f"{self.account_prefix}MAPPING_TEMPLATE_{self.trade_date_str}.csv"
         template_df = unique_symbols[['Symbol', 'Suggested_Ticker', 'Underlying', 'Exchange', 'Lot_Size']]
         template_df.columns = ['Symbol', 'Ticker', 'Underlying', 'Exchange', 'Lot_Size']
         template_df.to_csv(template_file, index=False)
@@ -445,7 +514,7 @@ class OutputGenerator:
                               input_parser=None,
                               trade_parser=None) -> Path:
         """Create a summary report of the processing including missing mappings"""
-        summary_file = self.output_dir / f"{self.account_prefix}summary_report_{self.timestamp}.txt"
+        summary_file = self.output_dir / f"{self.account_prefix}summary_report_{self.trade_date_str}.txt"
 
         with open(summary_file, 'w', encoding='utf-8') as f:
             f.write("=" * 60 + "\n")
@@ -660,7 +729,7 @@ class OutputGenerator:
             success = email_sender.send_stage1_complete(
                 to_emails=email_recipients,
                 account_prefix=self.account_prefix,
-                timestamp=self.timestamp,
+                timestamp=self.trade_date_str,  # Use trade date in DD-MMM-YYYY format
                 output_files=output_files,
                 stats=stats,
                 file_filter=file_filter,

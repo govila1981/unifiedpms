@@ -272,14 +272,22 @@ class TradePipeline:
             # Process to ACM format
             print(f"{Colors.CYAN}→ Mapping to ACM format...{Colors.ENDC}")
             mapped_df, errors_df = acm_mapper.process_trades_to_acm(processed_trades_df)
-            
+
             # Save outputs
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            acm_file = self.stage2_dir / f"acm_listedtrades_{timestamp}.csv"
+            # Extract trade date from processed trades
+            trade_date_str = None
+            if processed_trades_df is not None and not processed_trades_df.empty:
+                from output_generator import OutputGenerator
+                temp_gen = OutputGenerator()
+                trade_date_str = temp_gen._extract_trade_date(processed_trades_df)
+
+            # Use trade date if available, otherwise timestamp
+            date_str = trade_date_str if trade_date_str else datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            acm_file = self.stage2_dir / f"acm_listedtrades_{date_str}.csv"
             mapped_df.to_csv(acm_file, index=False)
-            
-            errors_file = self.stage2_dir / f"acm_listedtrades_{timestamp}_errors.csv"
+
+            errors_file = self.stage2_dir / f"acm_listedtrades_{date_str}_errors.csv"
             errors_df.to_csv(errors_file, index=False)
             
             # Store results

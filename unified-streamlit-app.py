@@ -66,7 +66,7 @@ try:
 
     # Import Encrypted File Handler
     try:
-        from encrypted_file_handler import is_encrypted_excel, read_csv_or_excel_with_password
+        from encrypted_file_handler import is_encrypted_excel, read_csv_or_excel_with_password, try_known_passwords
         ENCRYPTED_FILE_SUPPORT = True
     except ImportError:
         ENCRYPTED_FILE_SUPPORT = False
@@ -359,35 +359,51 @@ def main():
         if position_file is not None:
             st.session_state.cached_position_file = position_file
 
-            # Detect account in position file
-            if ACCOUNT_VALIDATION_AVAILABLE and st.session_state.account_validator:
-                pos_account = st.session_state.account_validator.detect_account_in_position_file(position_file)
-                if pos_account:
-                    st.session_state.detected_account = pos_account
-
         # Show cached file info if no new upload
         if position_file is None and st.session_state.cached_position_file is not None:
             st.info(f"✓ Using cached: {st.session_state.cached_position_file.name}")
             position_file = st.session_state.cached_position_file
 
-        # Password field for position file
+        # Password field for position file (collect BEFORE account detection)
         position_password = None
+        position_file_encrypted = False
         if position_file and ENCRYPTED_FILE_SUPPORT:
-            # Check if file is encrypted
+            # For Excel files, always try known passwords first
             if position_file.name.endswith(('.xlsx', '.xls')):
-                file_bytes = position_file.read()
+                # Pass UploadedFile DIRECTLY - same as Stage 2 processing
                 position_file.seek(0)
-                if is_encrypted_excel(io.BytesIO(file_bytes)):
+                auto_password = try_known_passwords(position_file)
+                position_file.seek(0)
+
+                if auto_password:
+                    # Known password worked! File was encrypted
+                    position_file_encrypted = True
+                    position_password = auto_password
+                    st.session_state.cached_position_password = auto_password
+                    st.success(f"✓ Decrypted position file automatically")
+                elif st.session_state.get('cached_position_password'):
+                    # Use cached password from previous attempt
+                    position_file_encrypted = True
+                    position_password = st.session_state.cached_position_password
+                elif is_encrypted_excel(position_file):
+                    # File is encrypted but known passwords failed
+                    position_file_encrypted = True
+                    position_file.seek(0)
+                    # Prompt user for password
                     position_password = st.text_input(
                         "Position file password:",
                         type="password",
                         key="position_password",
-                        help="This file is encrypted. Please enter the password."
+                        help="This file is encrypted. Known passwords failed, please enter password."
                     )
                     if position_password:
                         st.session_state.cached_position_password = position_password
-            elif st.session_state.cached_position_password:
-                position_password = st.session_state.cached_position_password
+
+        # Detect account in position file (validator tries known passwords automatically)
+        if position_file is not None and ACCOUNT_VALIDATION_AVAILABLE and st.session_state.account_validator:
+            pos_account = st.session_state.account_validator.detect_account_in_position_file(position_file)
+            if pos_account:
+                st.session_state.detected_account = pos_account
 
         # Conditional file uploaders based on mode
         if st.session_state.processing_mode == 'Intraday':
@@ -420,7 +436,44 @@ def main():
             # (will be replaced with enhanced file after reconciliation)
             trade_file = clearing_file
 
-        # Detect account in trade file and validate
+        # Check if trade file is encrypted and get password if needed
+        trade_password = None
+        trade_file_encrypted = False
+
+        if trade_file and ENCRYPTED_FILE_SUPPORT:
+            # For Excel files, always try known passwords first
+            if trade_file.name.endswith(('.xlsx', '.xls')):
+                # Pass UploadedFile DIRECTLY - same as Stage 2 processing
+                trade_file.seek(0)
+                auto_password = try_known_passwords(trade_file)
+                trade_file.seek(0)
+
+                if auto_password:
+                    # Known password worked! File was encrypted
+                    trade_file_encrypted = True
+                    trade_password = auto_password
+                    st.session_state.cached_trade_password = auto_password
+                    st.success(f"✓ Decrypted trade file automatically")
+                elif st.session_state.get('cached_trade_password'):
+                    # Use cached password from previous attempt
+                    trade_file_encrypted = True
+                    trade_password = st.session_state.cached_trade_password
+                elif is_encrypted_excel(trade_file):
+                    # File is encrypted but known passwords failed
+                    trade_file_encrypted = True
+                    trade_file.seek(0)
+                    # Prompt user for password
+                    trade_password = st.text_input(
+                        "Trade file password:",
+                        type="password",
+                        key="trade_password",
+                        help="This file is encrypted. Known passwords failed, please enter password."
+                    )
+                    # Cache password for reuse during processing
+                    if trade_password:
+                        st.session_state.cached_trade_password = trade_password
+
+        # Detect account in trade file and validate (validator tries known passwords automatically)
         if trade_file is not None and ACCOUNT_VALIDATION_AVAILABLE and st.session_state.account_validator:
             trade_account = st.session_state.account_validator.detect_account_in_trade_file(trade_file)
 
@@ -441,21 +494,6 @@ def main():
                     st.warning(message)
                 elif status_type == "error":
                     st.error(message)
-
-        # Password field for trade file
-        trade_password = None
-        if trade_file and ENCRYPTED_FILE_SUPPORT:
-            # Check if file is encrypted
-            if trade_file.name.endswith(('.xlsx', '.xls')):
-                file_bytes = trade_file.read()
-                trade_file.seek(0)
-                if is_encrypted_excel(io.BytesIO(file_bytes)):
-                    trade_password = st.text_input(
-                        "Trade file password:",
-                        type="password",
-                        key="trade_password",
-                        help="This file is encrypted. Please enter the password."
-                    )
         
         # Mapping file numbering depends on mode
         mapping_number = "3" if st.session_state.processing_mode == 'Intraday' else "4"
@@ -937,6 +975,9 @@ def process_stage1(position_file, trade_file, mapping_file, use_default, default
                     return False
                 # Save decrypted data to temporary file
                 suffix = Path(position_file.name).suffix
+                # Force .xlsx for Excel files (pandas doesn't support writing .xls)
+                if suffix.lower() in ['.xls', '.xlsx']:
+                    suffix = '.xlsx'
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=temp_dir) as tmp:
                     if suffix == '.csv':
                         df.to_csv(tmp.name, index=False)
@@ -958,6 +999,9 @@ def process_stage1(position_file, trade_file, mapping_file, use_default, default
                     return False
                 # Save decrypted data to temporary file
                 suffix = Path(trade_file.name).suffix
+                # Force .xlsx for Excel files (pandas doesn't support writing .xls)
+                if suffix.lower() in ['.xls', '.xlsx']:
+                    suffix = '.xlsx'
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=temp_dir) as tmp:
                     if suffix == '.csv':
                         df.to_csv(tmp.name, index=False)
@@ -1036,7 +1080,9 @@ def process_stage1(position_file, trade_file, mapping_file, use_default, default
             )
 
             # Save final enhanced clearing file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Extract trade date for file naming from processed_trades_df (has TD column)
+            trade_date_str = output_gen._extract_trade_date(processed_trades_df)
+
             if is_streamlit_cloud():
                 output_dir = get_temp_dir() / "stage1"
                 output_dir.mkdir(parents=True, exist_ok=True)
@@ -1044,7 +1090,7 @@ def process_stage1(position_file, trade_file, mapping_file, use_default, default
                 output_dir = Path("output/stage1")
                 output_dir.mkdir(parents=True, exist_ok=True)
 
-            final_enhanced_file = output_dir / f"{account_prefix}final_enhanced_clearing_{timestamp}.csv"
+            final_enhanced_file = output_dir / f"{account_prefix}final_enhanced_clearing_{trade_date_str}.csv"
 
             # Format date columns as DD/MM/YYYY
             if 'Expiry Dt' in final_enhanced_clearing_df.columns:
@@ -1153,7 +1199,7 @@ def process_stage2(schema_option, custom_schema_file, account_prefix=""):
             
             # Process to ACM format
             mapped_df, errors_df = acm_mapper.process_trades_to_acm(processed_trades_df)
-            
+
             # Save outputs
             # Use appropriate output directory
             if is_streamlit_cloud():
@@ -1162,16 +1208,24 @@ def process_stage2(schema_option, custom_schema_file, account_prefix=""):
             else:
                 output_dir = Path("output/stage2")
                 output_dir.mkdir(parents=True, exist_ok=True)
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            acm_file = output_dir / f"{account_prefix}acm_listedtrades_{timestamp}.csv"
+
+            # Extract trade date from processed trades
+            trade_date_str = None
+            if processed_trades_df is not None and not processed_trades_df.empty:
+                from output_generator import OutputGenerator
+                temp_gen = OutputGenerator()
+                trade_date_str = temp_gen._extract_trade_date(processed_trades_df)
+
+            # Use trade date if available, otherwise timestamp
+            date_str = trade_date_str if trade_date_str else datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            acm_file = output_dir / f"{account_prefix}acm_listedtrades_{date_str}.csv"
             mapped_df.to_csv(acm_file, index=False)
 
-            errors_file = output_dir / f"{account_prefix}acm_listedtrades_{timestamp}_errors.csv"
+            errors_file = output_dir / f"{account_prefix}acm_listedtrades_{date_str}_errors.csv"
             errors_df.to_csv(errors_file, index=False)
 
-            schema_file = output_dir / f"{account_prefix}acm_schema_used_{timestamp}.xlsx"
+            schema_file = output_dir / f"{account_prefix}acm_schema_used_{date_str}.xlsx"
             schema_bytes = acm_mapper.generate_schema_excel()
             with open(schema_file, 'wb') as f:
                 f.write(schema_bytes)
@@ -1254,8 +1308,17 @@ def run_deliverables_calculation(usdinr_rate: float, account_prefix=""):
 
             calc = DeliverableCalculator(usdinr_rate)
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = get_output_path(f"{account_prefix}DELIVERABLES_REPORT_{timestamp}.xlsx")
+            # Extract trade date from processed trades
+            trade_date_str = None
+            processed_trades = stage1_data.get('processed_trades')
+            if processed_trades is not None and not processed_trades.empty:
+                from output_generator import OutputGenerator
+                temp_gen = OutputGenerator()
+                trade_date_str = temp_gen._extract_trade_date(processed_trades)
+
+            # Use trade date if available, otherwise timestamp
+            date_str = trade_date_str if trade_date_str else datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = get_output_path(f"{account_prefix}DELIVERABLES_REPORT_{date_str}.xlsx")
             
             calc.generate_deliverables_report(
                 starting_positions,
@@ -1506,6 +1569,15 @@ def run_broker_reconciliation(trade_file, broker_files, mapping_file, account_pr
 
             st.info(f"🗂️ Output directory: {Path(output_base).absolute()}")
             reconciler = TradeReconciler(output_dir=output_base, account_prefix=account_prefix)
+
+            # Set trade date from Stage 1 if available
+            if hasattr(st.session_state, 'stage1_outputs') and st.session_state.get('dataframes', {}).get('stage1'):
+                processed_trades_df = st.session_state['dataframes']['stage1'].get('processed_trades')
+                if processed_trades_df is not None and not processed_trades_df.empty:
+                    from output_generator import OutputGenerator
+                    temp_gen = OutputGenerator()
+                    trade_date_str = temp_gen._extract_trade_date(processed_trades_df)
+                    reconciler.set_trade_date(trade_date_str)
 
             # Run reconciliation
             result = reconciler.reconcile(
@@ -2940,11 +3012,17 @@ def display_email_reports_tab():
 
     col1, col2 = st.columns([2, 1])
     with col1:
-        default_ops = get_default_recipients()
-        st.info(f"✅ Default recipient (always included): {', '.join(default_ops)}")
+        # Checkbox for operations@aurigincm.com
+        include_ops_email = st.checkbox(
+            "operations@aurigincm.com",
+            value=st.session_state.get('include_ops_email', True),
+            key='checkbox_ops_email',
+            help="Include operations@aurigincm.com in recipients"
+        )
+        st.session_state.include_ops_email = include_ops_email
 
         additional_recipients = st.text_area(
-            "Additional Recipients (optional)",
+            "Additional Recipients",
             value=st.session_state.get('email_additional_recipients', ''),
             placeholder="user1@example.com, user2@example.com",
             help="Enter additional email addresses (comma-separated)"
@@ -2953,7 +3031,13 @@ def display_email_reports_tab():
 
     with col2:
         # Calculate total recipients
-        all_recipients = default_ops.copy()
+        all_recipients = []
+
+        # Add operations@aurigincm.com if checked
+        if include_ops_email:
+            all_recipients.append('operations@aurigincm.com')
+
+        # Add additional recipients
         if additional_recipients:
             additional = [email.strip() for email in additional_recipients.split(',') if email.strip()]
             for email in additional:
@@ -3169,13 +3253,39 @@ def display_email_reports_tab():
                     st.error("⚠️ Total size exceeds SendGrid limit (25MB)")
 
     with col2:
-        # Email subject customization
-        subject_suffix = st.text_input(
-            "Subject suffix (optional)",
-            value=st.session_state.get('email_subject_suffix', ''),
-            placeholder="e.g., EOD Report"
+        # Email subject suffix customization
+        st.caption("Subject suffix (optional)")
+
+        # Preset options
+        preset_options = ["None", "FnO position recon", "EOD FnO trade recon"]
+        suffix_preset = st.radio(
+            "Select preset",
+            options=preset_options,
+            index=0,
+            horizontal=False,
+            key='email_suffix_preset',
+            label_visibility="collapsed"
         )
-        st.session_state.email_subject_suffix = subject_suffix
+
+        # Custom suffix input
+        custom_suffix = st.text_input(
+            "Or enter custom suffix",
+            value=st.session_state.get('email_custom_suffix', ''),
+            placeholder="e.g., Preliminary",
+            key='email_custom_suffix_input',
+            label_visibility="collapsed"
+        )
+        st.session_state.email_custom_suffix = custom_suffix
+
+        # Determine final suffix
+        if custom_suffix.strip():
+            final_suffix = custom_suffix.strip()
+        elif suffix_preset != "None":
+            final_suffix = suffix_preset
+        else:
+            final_suffix = None
+
+        st.session_state.email_subject_suffix = final_suffix
 
     with col3:
         # Send button
@@ -3215,13 +3325,40 @@ def display_email_reports_tab():
 
                 # Format subject
                 from datetime import datetime
-                date_str = datetime.now().strftime('%d/%m/%Y')
-                account_prefix = st.session_state.get('account_prefix', '').rstrip('_')
-                fund_name = 'Aurigin' if account_prefix == 'AURIGIN' else account_prefix
 
-                subject = f"{fund_name} | Reports | {date_str}"
-                if subject_suffix:
-                    subject += f" | {subject_suffix}"
+                # Get account prefix from validator (same way as file generation)
+                account_prefix = ""
+                if 'account_validator' in st.session_state and st.session_state.account_validator:
+                    account_prefix = st.session_state.account_validator.get_account_prefix()
+                account_prefix = account_prefix.rstrip('_') if account_prefix else ''
+
+                # Extract trade date from processed trades if available
+                trade_date_str = None
+                if st.session_state.get('dataframes', {}).get('stage1'):
+                    processed_trades = st.session_state['dataframes']['stage1'].get('processed_trades')
+                    if processed_trades is not None and not processed_trades.empty:
+                        from output_generator import OutputGenerator
+                        temp_gen = OutputGenerator()
+                        trade_date_str = temp_gen._extract_trade_date(processed_trades)
+
+                # Use trade date if available, otherwise current date in DD-MMM-YYYY format
+                if trade_date_str:
+                    date_str = trade_date_str  # Already in DD-MMM-YYYY format
+                else:
+                    date_str = datetime.now().strftime("%d-%b-%Y")  # DD-MMM-YYYY format
+
+                # Get fund name with proper fallback
+                if account_prefix == 'AURIGIN':
+                    fund_name = 'Aurigin'
+                elif account_prefix:
+                    fund_name = account_prefix
+                else:
+                    fund_name = 'Trade Processing'  # Default when no account prefix
+
+                # Build subject - suffix replaces "Reports" if provided
+                subject_suffix = st.session_state.get('email_subject_suffix')
+                subject_label = subject_suffix if subject_suffix else "Reports"
+                subject = f"{fund_name} | {subject_label} | {date_str}"
 
                 body = f"""
                 <h2>Trade Processing Reports</h2>

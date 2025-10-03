@@ -26,7 +26,13 @@ class TradeReconciler:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         self.account_prefix = account_prefix
-        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # Fallback
+        self.trade_date_str = None  # Will be set from trade data (DD-MMM-YYYY format)
+
+    def set_trade_date(self, trade_date_str: str):
+        """Set the trade date string for file naming"""
+        self.trade_date_str = trade_date_str
+        logger.info(f"Trade reconciler using trade date: {trade_date_str}")
 
     def reconcile(self, clearing_file, broker_files: List, futures_mapping_file: str = "futures mapping.csv") -> Dict:
         """
@@ -690,7 +696,9 @@ class TradeReconciler:
                 output_df['TD'] = output_df['TD'].apply(convert_td)
 
             # Save to CSV with full precision for numeric columns
-            filename = f"{self.account_prefix}clearing_enhanced_{self.timestamp}.csv"
+            # Use trade date if available, otherwise timestamp
+            date_str = self.trade_date_str if self.trade_date_str else self.timestamp
+            filename = f"{self.account_prefix}clearing_enhanced_{date_str}.csv"
             filepath = self.output_dir / filename
             output_df.to_csv(filepath, index=False, float_format='%.10g')
 
@@ -822,7 +830,9 @@ class TradeReconciler:
                                       broker_df: pd.DataFrame) -> str:
         """Generate Excel reconciliation report with 4 sheets"""
         try:
-            filename = f"{self.account_prefix}broker_recon_report_{self.timestamp}.xlsx"
+            # Use trade date if available, otherwise timestamp
+            date_str = self.trade_date_str if self.trade_date_str else self.timestamp
+            filename = f"{self.account_prefix}broker_recon_report_{date_str}.xlsx"
             filepath = self.output_dir / filename
 
             with pd.ExcelWriter(filepath, engine='openpyxl') as writer:

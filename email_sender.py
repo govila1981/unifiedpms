@@ -178,7 +178,8 @@ class EmailSender:
                             output_files: Dict[str, Path],
                             stats: Dict,
                             file_filter: Dict[str, bool] = None,
-                            pre_post_summary = None) -> bool:
+                            pre_post_summary = None,
+                            subject_suffix: str = None) -> bool:
         """
         Send Stage 1 completion email
 
@@ -231,25 +232,36 @@ class EmailSender:
                     if file_size <= 5:
                         attachments.append(file_path)
 
-        # Format fund name and date
+        # Format fund name (timestamp parameter already has trade date in DD-MMM-YYYY format)
         fund_name = self._get_fund_name(account_prefix)
-        date = datetime.now().strftime('%d/%m/%Y')
+
+        # Log the timestamp being used in email
+        logger.info(f"Email timestamp for subject line: {timestamp}")
 
         # Generate pre vs post trade summary HTML table
         pre_post_html = '<p><em>No position changes detected</em></p>'
+        logger.info(f"Pre/Post summary: received={pre_post_summary is not None}, empty={pre_post_summary.empty if pre_post_summary is not None else 'N/A'}")
+        if pre_post_summary is not None:
+            logger.info(f"Pre/Post summary shape: {pre_post_summary.shape}")
+            logger.info(f"Pre/Post summary preview:\n{pre_post_summary.head()}")
+
         if pre_post_summary is not None and not pre_post_summary.empty:
             pre_post_html = self._generate_summary_table_html(pre_post_summary)
+            logger.info(f"Generated HTML table with {len(pre_post_summary)} rows")
+
+        # Use suffix as subject label if provided, otherwise use default
+        subject_label = subject_suffix if subject_suffix else "Trade Processing"
 
         template_data = {
             'fund_name': fund_name,
-            'date': date,
             'account_prefix': account_prefix or '',
-            'timestamp': timestamp,
+            'timestamp': timestamp,  # Trade date in DD-MMM-YYYY format
             'total_trades': stats.get('total_trades', 0),
             'starting_positions': stats.get('starting_positions', 0),
             'final_positions': stats.get('final_positions', 0),
             'file_list': file_list,
-            'pre_post_summary': pre_post_html
+            'pre_post_summary': pre_post_html,
+            'subject_label': subject_label  # Suffix or default label
         }
 
         return self.send_from_template(
@@ -267,7 +279,13 @@ class EmailSender:
                                 stats: Dict) -> bool:
         """Send deliverables report email"""
         fund_name = self._get_fund_name(account_prefix)
-        date = datetime.now().strftime('%d/%m/%Y')
+
+        # Convert timestamp (DD-MMM-YYYY) to DD/MM/YYYY for template consistency
+        try:
+            date_obj = datetime.strptime(timestamp, "%d-%b-%Y")
+            date = date_obj.strftime('%d/%m/%Y')
+        except:
+            date = timestamp  # Use as-is if parsing fails
 
         template_data = {
             'fund_name': fund_name,
@@ -322,7 +340,13 @@ class EmailSender:
             attachments.append(enhanced_file)
 
         fund_name = self._get_fund_name(account_prefix)
-        date = datetime.now().strftime('%d/%m/%Y')
+
+        # Convert timestamp (DD-MMM-YYYY) to DD/MM/YYYY for template consistency
+        try:
+            date_obj = datetime.strptime(timestamp, "%d-%b-%Y")
+            date = date_obj.strftime('%d/%m/%Y')
+        except:
+            date = timestamp  # Use as-is if parsing fails
 
         template_data = {
             'fund_name': fund_name,

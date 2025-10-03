@@ -70,7 +70,7 @@ class EmailConfig:
 # Email templates
 EMAIL_TEMPLATES = {
     'stage1_complete': {
-        'subject': '{fund_name} | Trade Processing | {date}',
+        'subject': '{fund_name} | {subject_label} | {timestamp}',
         'body': '''
 <h2>Trade Processing Completed Successfully</h2>
 
@@ -79,7 +79,7 @@ EMAIL_TEMPLATES = {
 <h3>Summary:</h3>
 <ul>
     <li><strong>Account:</strong> {account_prefix}</li>
-    <li><strong>Timestamp:</strong> {timestamp}</li>
+    <li><strong>Trade Date:</strong> {timestamp}</li>
     <li><strong>Total Trades Processed:</strong> {total_trades}</li>
     <li><strong>Starting Positions:</strong> {starting_positions}</li>
     <li><strong>Final Positions:</strong> {final_positions}</li>

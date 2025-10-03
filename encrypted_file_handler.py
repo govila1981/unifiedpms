@@ -20,17 +20,63 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Known passwords to try automatically
+KNOWN_PASSWORDS = ["Aurigin2017", "Aurigin2024"]
+
+
+def try_known_passwords(file_input: Union[str, Path, bytes, io.BytesIO]) -> Optional[str]:
+    """
+    Try known passwords automatically on an encrypted file
+    Returns the successful password, or None if all fail
+
+    Note: Uses the SAME decryption method as Stage 2 processing for consistency.
+    """
+    if not MSOFFCRYPTO_AVAILABLE:
+        logger.debug("msoffcrypto not available, skipping known password attempts")
+        return None
+
+    logger.info(f"Trying {len(KNOWN_PASSWORDS)} known passwords on file")
+
+    for password in KNOWN_PASSWORDS:
+        try:
+            logger.info(f"Attempting decryption with password: {password}")
+
+            # Reset file position if file-like object
+            if hasattr(file_input, 'seek'):
+                file_input.seek(0)
+
+            # Use the SAME method as Stage 2 - read_excel_with_password
+            success, df, error = read_excel_with_password(file_input, password, sheet_name=0)
+
+            if success and df is not None:
+                logger.info(f"✓ Successfully decrypted file with known password '{password}'")
+                # Reset file position for next use
+                if hasattr(file_input, 'seek'):
+                    file_input.seek(0)
+                return password
+            else:
+                logger.debug(f"Password '{password}' failed: {error}")
+        except Exception as e:
+            logger.debug(f"Password '{password}' exception: {e}")
+            continue
+
+    logger.info("All known passwords failed, user input required")
+    return None
+
 
 def is_encrypted_excel(file_path: Union[str, Path, bytes, io.BytesIO]) -> bool:
     """Check if an Excel file is encrypted"""
     if not MSOFFCRYPTO_AVAILABLE:
+        logger.debug("is_encrypted_excel: msoffcrypto not available")
         return False
 
     try:
         if isinstance(file_path, (str, Path)):
             with open(file_path, 'rb') as f:
                 file = msoffcrypto.OfficeFile(f)
-                return file.is_encrypted()
+                is_enc = file.is_encrypted()
+                logger.info(f"is_encrypted_excel: File path check - encrypted={is_enc}")
+                return is_enc
         else:
             # For file-like objects (BytesIO)
             if hasattr(file_path, 'seek'):
@@ -39,8 +85,12 @@ def is_encrypted_excel(file_path: Union[str, Path, bytes, io.BytesIO]) -> bool:
             is_enc = file.is_encrypted()
             if hasattr(file_path, 'seek'):
                 file_path.seek(0)
+            logger.info(f"is_encrypted_excel: BytesIO check - encrypted={is_enc}")
             return is_enc
-    except:
+    except Exception as e:
+        logger.warning(f"is_encrypted_excel: Exception occurred - {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         return False
 
 
