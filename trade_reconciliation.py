@@ -257,72 +257,116 @@ class TradeReconciler:
                         'read_error': f"Excel: {str(e)[:100]}, CSV: {str(csv_error)[:100]}"
                     }
 
-            # PRIORITY 1: Search for broker names in ALL cells (data-driven detection)
-            logger.info("Step 1: Searching for broker names in file data...")
-            broker_name_map = {
-                'EQUIRUS': 13017,
-                'ANTIQUE': 12987,
-                'KOTAK': 8081,
-                'ICICI': 7730,
-                'IIFL': 10975,
-                'AXIS': 13872,
-                'EDELWEISS': 11933,
-                'NUVAMA': 11933,
-                'MORGAN': 10542,
-            }
+            # PRIORITY 1: Look for broker codes AND broker names in data columns (MOST RELIABLE)
+            logger.info("Step 1: Checking broker code/name columns in file data...")
 
-            # Convert entire dataframe to string and search
-            df_str = df.astype(str).apply(lambda x: ' '.join(x), axis=1).str.upper()
-
-            for broker_keyword, broker_code in broker_name_map.items():
-                # Count occurrences of broker name across all cells
-                occurrences = df_str.str.contains(broker_keyword, na=False).sum()
-
-                if occurrences > 0:
-                    broker_info = get_broker_by_code(broker_code)
-                    if broker_info:
-                        logger.info(f"✓ Detected {broker_info['name']} from {occurrences} occurrence(s) of '{broker_keyword}' in file data")
-                        return broker_info
-
-            # PRIORITY 2: Look for broker codes in broker code columns
-            logger.info("Step 2: Checking broker code columns...")
-            broker_code_columns = ['Broker Code', 'BrokerNSECode', 'Broker NSE Code', 'TM Code', 'TM_Code', 'Broker_Code']
-
+            # 1a. Check broker code columns (try exact names first, then fuzzy match)
+            exact_broker_code_columns = ['Broker Code', 'BrokerNSECode', 'Broker NSE Code', 'TM Code', 'TM_Code', 'Broker_Code', 'Member Code', 'Member_Code', 'Broker', 'Member']
             broker_code_counts = {}  # Track which broker codes appear most frequently
 
-            for col in broker_code_columns:
+            # First try exact column names
+            columns_to_check = []
+            for col in exact_broker_code_columns:
                 if col in df.columns:
-                    # Get all non-null broker codes
-                    broker_codes = df[col].dropna()
+                    columns_to_check.append(col)
 
-                    for broker_code_str in broker_codes:
-                        try:
-                            broker_code_str = str(broker_code_str).strip()
+            # If no exact match, try fuzzy matching (columns containing "broker" or "member" or "tm")
+            if not columns_to_check:
+                logger.info("No exact broker code column match, trying fuzzy search...")
+                for col in df.columns:
+                    col_lower = str(col).lower()
+                    if any(keyword in col_lower for keyword in ['broker', 'member', 'tm code', 'tm_code']):
+                        logger.info(f"  Found potential broker code column: '{col}'")
+                        columns_to_check.append(col)
 
-                            # Remove any leading zeros and convert to int
-                            if broker_code_str.replace('.', '').replace('-', '').isdigit():
-                                broker_code = abs(int(float(broker_code_str)))
+            if columns_to_check:
+                logger.info(f"Checking columns for broker codes: {columns_to_check}")
 
+            for col in columns_to_check:
+                logger.info(f"Reading broker codes from column '{col}'...")
+                # Get all non-null broker codes
+                broker_codes = df[col].dropna()
+
+                # Log first few values for debugging
+                sample_values = broker_codes.head(5).tolist()
+                logger.info(f"  Sample values: {sample_values}")
+
+                for broker_code_str in broker_codes:
+                    try:
+                        broker_code_str = str(broker_code_str).strip()
+
+                        # Remove any leading zeros and convert to int
+                        if broker_code_str.replace('.', '').replace('-', '').isdigit():
+                            broker_code = abs(int(float(broker_code_str)))
+
+                            # Only count valid broker codes (4-5 digits)
+                            if 1000 <= broker_code <= 99999:
                                 # Count occurrences
                                 if broker_code not in broker_code_counts:
                                     broker_code_counts[broker_code] = 0
                                 broker_code_counts[broker_code] += 1
-                        except:
-                            continue
+                    except Exception as e:
+                        logger.debug(f"  Could not parse broker code '{broker_code_str}': {e}")
+                        continue
 
             # Find most common broker code
             if broker_code_counts:
                 most_common_code = max(broker_code_counts, key=broker_code_counts.get)
                 occurrences = broker_code_counts[most_common_code]
 
+                logger.info(f"Broker code frequency: {broker_code_counts}")
                 broker_info = get_broker_by_code(most_common_code)
                 if broker_info:
-                    logger.info(f"✓ Detected {broker_info['name']} from broker code {most_common_code} ({occurrences} occurrence(s) in file data)")
+                    logger.info(f"✓ Detected {broker_info['name']} from broker code {most_common_code} ({occurrences} row(s) with this code)")
                     return broker_info
                 else:
                     logger.warning(f"Found broker code {most_common_code} ({occurrences} occurrences) but it's not in registry")
+            else:
+                logger.info(f"No broker code columns found. Checked: {broker_code_columns}")
 
-            # PRIORITY 3: Column structure detection (LAST RESORT - only for files without broker codes)
+            # 1b. Check Broker Name column
+            if 'Broker Name' in df.columns:
+                logger.info("Found 'Broker Name' column, checking broker names in data...")
+                broker_name_counts = {}
+
+                broker_names = df['Broker Name'].dropna().astype(str).str.upper().str.strip()
+
+                for broker_name in broker_names:
+                    # Map broker names to codes
+                    matched_code = None
+                    if 'EQUIRUS' in broker_name:
+                        matched_code = 13017
+                    elif 'ANTIQUE' in broker_name:
+                        matched_code = 12987
+                    elif 'KOTAK' in broker_name:
+                        matched_code = 8081
+                    elif 'ICICI' in broker_name:
+                        matched_code = 7730
+                    elif 'IIFL' in broker_name:
+                        matched_code = 10975
+                    elif 'AXIS' in broker_name:
+                        matched_code = 13872
+                    elif 'EDELWEISS' in broker_name or 'NUVAMA' in broker_name:
+                        matched_code = 11933
+                    elif 'MORGAN' in broker_name:
+                        matched_code = 10542
+
+                    if matched_code:
+                        if matched_code not in broker_name_counts:
+                            broker_name_counts[matched_code] = 0
+                        broker_name_counts[matched_code] += 1
+
+                # Find most common broker from names
+                if broker_name_counts:
+                    most_common_code = max(broker_name_counts, key=broker_name_counts.get)
+                    occurrences = broker_name_counts[most_common_code]
+
+                    broker_info = get_broker_by_code(most_common_code)
+                    if broker_info:
+                        logger.info(f"✓ Detected {broker_info['name']} from Broker Name column ({occurrences} row(s) with this broker)")
+                        return broker_info
+
+            # PRIORITY 2: Column structure detection (LAST RESORT - only for files without broker codes/names)
             logger.info("Step 3: Falling back to column structure detection (less reliable)...")
 
             # Morgan Stanley: Special case - doesn't have broker code column

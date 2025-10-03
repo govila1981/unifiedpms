@@ -91,11 +91,14 @@ class BrokerParserBase:
     def _add_lots_if_available(self, parsed_row: dict, row, df: pd.DataFrame):
         """Add lots to parsed row if available in source data"""
         # Check for various lot column names
-        lot_columns = ['Lots traded', 'Lots Traded', 'Lots', 'lots', 'Contract Lot', 'Contract Lots', 'No Of Traded Lots', 'No. of Contracts']
+        lot_columns = ['Lots traded', 'Lots Traded', 'Lots', 'lots', 'Contract Lot', 'Contract Lots', 'No Of Traded Lots', 'No. of Contracts', 'No of Contracts']
         for col in lot_columns:
             if col in df.columns:
-                parsed_row['lots'] = float(row[col]) if pd.notna(row[col]) else 0
-                return
+                try:
+                    parsed_row['lots'] = abs(float(row[col])) if pd.notna(row[col]) else 0
+                    return
+                except:
+                    continue
 
     def _get_broker_code_from_row(self, row, df: pd.DataFrame, default_code: int) -> int:
         """
@@ -1022,19 +1025,38 @@ class EquirusParser(BrokerParserBase):
             if decrypted_file:
                 file_obj = decrypted_file
 
-            # Read Excel file
-            df = pd.read_excel(file_obj)
+            # Try reading as Excel first, then CSV
+            try:
+                df = pd.read_excel(file_obj)
+                logger.info(f"Read Equirus file as Excel with {len(df)} rows")
+            except:
+                file_obj.seek(0)
+                # Try reading CSV with different encodings and handle BOM
+                try:
+                    df = pd.read_csv(file_obj, encoding='utf-8-sig')
+                except:
+                    file_obj.seek(0)
+                    try:
+                        df = pd.read_csv(file_obj, encoding='cp1252')
+                    except:
+                        file_obj.seek(0)
+                        df = pd.read_csv(file_obj, encoding='latin-1')
+                logger.info(f"Read Equirus file as CSV with {len(df)} rows")
 
-            logger.info(f"Read Equirus file with {len(df)} rows")
+            # Remove empty rows
+            df = df.dropna(how='all')
+            logger.info(f"After removing empty rows: {len(df)} rows")
+            logger.info(f"Equirus file columns: {list(df.columns)}")
 
-            # Expected columns
-            required_cols = ['CP Code', 'Scrip Code', 'Call / Put', 'Expiry', 'Buy / Sell',
+            # Expected columns (Strike Price is optional - blank for futures)
+            required_cols = ['CP Code', 'Scrip Code', 'Expiry', 'Buy / Sell',
                            'Qty', 'Mkt. Rate', 'Pure Brokerage AMT', 'Total Taxes', 'Trade Date']
 
             # Check if required columns exist
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 logger.error(f"Missing columns in Equirus file: {missing_cols}")
+                logger.error(f"File has these columns: {list(df.columns)}")
                 return pd.DataFrame()
 
             # Process each row
@@ -1049,8 +1071,18 @@ class EquirusParser(BrokerParserBase):
                     index_symbols = ['NIFTY', 'NSEBANK', 'MIDCAPNIFTY', 'BANKNIFTY', 'FINNIFTY']
                     is_index = scrip_code in index_symbols
 
-                    # Get Call/Put to determine if futures or options
-                    call_put = str(row['Call / Put']).strip().upper() if pd.notna(row['Call / Put']) else ''
+                    # Get Call/Put to determine if futures or options (column may or may not exist)
+                    call_put = ''
+                    if 'Call / Put' in df.columns:
+                        call_put = str(row['Call / Put']).strip().upper() if pd.notna(row['Call / Put']) else ''
+
+                    # Get Strike Price if available
+                    strike_price_val = 0
+                    if 'Strike Price' in df.columns and pd.notna(row['Strike Price']):
+                        try:
+                            strike_price_val = float(row['Strike Price'])
+                        except:
+                            strike_price_val = 0
 
                     # Determine instrument and security type
                     if not call_put or call_put == 'NAN' or call_put == '':
@@ -1062,12 +1094,12 @@ class EquirusParser(BrokerParserBase):
                         # Call option
                         instrument = 'OPTIDX' if is_index else 'OPTSTK'
                         security_type = 'Call'
-                        strike = float(row['Strike Price']) if pd.notna(row['Strike Price']) else 0
+                        strike = strike_price_val
                     elif call_put in ['PUT', 'P', 'PE']:
                         # Put option
                         instrument = 'OPTIDX' if is_index else 'OPTSTK'
                         security_type = 'Put'
-                        strike = float(row['Strike Price']) if pd.notna(row['Strike Price']) else 0
+                        strike = strike_price_val
                     else:
                         logger.warning(f"Unknown Call/Put value: {call_put} at row {idx}")
                         continue
@@ -1614,10 +1646,28 @@ class AntiqueParser(BrokerParserBase):
             if decrypted_file:
                 file_obj = decrypted_file
 
-            # Read Excel file
-            df = pd.read_excel(file_obj)
+            # Try reading as Excel first, then CSV
+            try:
+                df = pd.read_excel(file_obj)
+                logger.info(f"Read Antique file as Excel with {len(df)} rows")
+            except:
+                file_obj.seek(0)
+                # Try reading CSV with different encodings and handle BOM
+                try:
+                    df = pd.read_csv(file_obj, encoding='utf-8-sig')
+                except:
+                    file_obj.seek(0)
+                    try:
+                        df = pd.read_csv(file_obj, encoding='cp1252')
+                    except:
+                        file_obj.seek(0)
+                        df = pd.read_csv(file_obj, encoding='latin-1')
+                logger.info(f"Read Antique file as CSV with {len(df)} rows")
 
-            logger.info(f"Read Antique file with {len(df)} rows")
+            # Remove empty rows
+            df = df.dropna(how='all')
+            logger.info(f"After removing empty rows: {len(df)} rows")
+            logger.info(f"Antique file columns: {list(df.columns)}")
 
             # Expected columns
             required_cols = ['CP Code', 'Scrip Code', 'Strike Price', 'Call / Put', 'Expiry',
@@ -1627,6 +1677,7 @@ class AntiqueParser(BrokerParserBase):
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 logger.error(f"Missing columns in Antique file: {missing_cols}")
+                logger.error(f"File has these columns: {list(df.columns)}")
                 return pd.DataFrame()
 
             # Process each row
