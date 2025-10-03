@@ -316,7 +316,7 @@ class IciciParser(BrokerParserBase):
                     parsed_row = {
                         'bloomberg_ticker': bloomberg_ticker,
                         'cp_code': str(row['CP Code']).strip().upper(),
-                        'broker_code': abs(int(row['Broker Code'])),  # Absolute value
+                        'broker_code': self._get_broker_code_from_row(row, df, 7730),  # Read from file, default ICICI
                         'side': side_normalized,
                         'quantity': int(row['Qty']),
                         'price': float(row['Mkt. Rate']),

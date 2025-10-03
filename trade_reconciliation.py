@@ -228,24 +228,8 @@ class TradeReconciler:
             return {'success': False, 'error': str(e)}
 
     def _detect_broker_from_content(self, file_obj) -> Optional[Dict]:
-        """Detect broker from broker code in file content or column structure"""
+        """Detect broker from actual data in file (broker names/codes), not just file structure"""
         try:
-            # Method 0: Check for Morgan Stanley keyword (before parsing)
-            file_obj.seek(0)
-            try:
-                content_sample = file_obj.read(5000)  # Read first 5000 bytes
-                if isinstance(content_sample, bytes):
-                    content_sample = content_sample.decode('utf-8', errors='ignore')
-
-                if 'morgan' in content_sample.lower() or 'Morgan Stanley' in content_sample:
-                    broker_info = get_broker_by_code(10542)  # Morgan Stanley code
-                    if broker_info:
-                        logger.info(f"Detected Morgan Stanley broker from file content keyword")
-                        file_obj.seek(0)
-                        return broker_info
-            except:
-                pass
-
             file_obj.seek(0)
 
             # Try to decrypt if password-protected
@@ -256,7 +240,7 @@ class TradeReconciler:
 
             # Try reading as Excel
             try:
-                df = pd.read_excel(file_obj, nrows=100)  # Read first 100 rows
+                df = pd.read_excel(file_obj, nrows=100)  # Read first 100 rows for detection
                 logger.info(f"Successfully read Excel file for detection. Columns: {list(df.columns)}")
             except Exception as e:
                 # Try reading as CSV
@@ -266,7 +250,6 @@ class TradeReconciler:
                     logger.info(f"Successfully read CSV file for detection. Columns: {list(df.columns)}")
                 except Exception as csv_error:
                     logger.error(f"Could not read file as Excel or CSV: Excel error: {e}, CSV error: {csv_error}")
-                    # Return diagnostic info about read failure
                     return {
                         'error': 'detection_failed',
                         'columns': [],
@@ -274,137 +257,133 @@ class TradeReconciler:
                         'read_error': f"Excel: {str(e)[:100]}, CSV: {str(csv_error)[:100]}"
                     }
 
-            # Method 1: Look for broker code columns - THIS IS THE PRIMARY METHOD
+            # PRIORITY 1: Search for broker names in ALL cells (data-driven detection)
+            logger.info("Step 1: Searching for broker names in file data...")
+            broker_name_map = {
+                'EQUIRUS': 13017,
+                'ANTIQUE': 12987,
+                'KOTAK': 8081,
+                'ICICI': 7730,
+                'IIFL': 10975,
+                'AXIS': 13872,
+                'EDELWEISS': 11933,
+                'NUVAMA': 11933,
+                'MORGAN': 10542,
+            }
+
+            # Convert entire dataframe to string and search
+            df_str = df.astype(str).apply(lambda x: ' '.join(x), axis=1).str.upper()
+
+            for broker_keyword, broker_code in broker_name_map.items():
+                # Count occurrences of broker name across all cells
+                occurrences = df_str.str.contains(broker_keyword, na=False).sum()
+
+                if occurrences > 0:
+                    broker_info = get_broker_by_code(broker_code)
+                    if broker_info:
+                        logger.info(f"✓ Detected {broker_info['name']} from {occurrences} occurrence(s) of '{broker_keyword}' in file data")
+                        return broker_info
+
+            # PRIORITY 2: Look for broker codes in broker code columns
+            logger.info("Step 2: Checking broker code columns...")
             broker_code_columns = ['Broker Code', 'BrokerNSECode', 'Broker NSE Code', 'TM Code', 'TM_Code', 'Broker_Code']
+
+            broker_code_counts = {}  # Track which broker codes appear most frequently
 
             for col in broker_code_columns:
                 if col in df.columns:
-                    # Get first non-null broker code
+                    # Get all non-null broker codes
                     broker_codes = df[col].dropna()
-                    if len(broker_codes) > 0:
-                        broker_code_str = str(broker_codes.iloc[0]).strip()
-                        logger.info(f"Found broker code column '{col}' with value: {broker_code_str}")
 
+                    for broker_code_str in broker_codes:
                         try:
+                            broker_code_str = str(broker_code_str).strip()
+
                             # Remove any leading zeros and convert to int
-                            # Handle both string and numeric values
                             if broker_code_str.replace('.', '').replace('-', '').isdigit():
                                 broker_code = abs(int(float(broker_code_str)))
-                            else:
-                                logger.warning(f"Broker code '{broker_code_str}' is not numeric, skipping")
-                                continue
 
-                            logger.info(f"Parsed broker code: {broker_code}")
-
-                            # Look up broker by code
-                            broker_info = get_broker_by_code(broker_code)
-                            if broker_info:
-                                logger.info(f"✓ Detected broker from {col}: {broker_info['name']} (code: {broker_code})")
-                                return broker_info
-                            else:
-                                logger.warning(f"Unknown broker code: {broker_code} from column {col}")
-                        except Exception as e:
-                            logger.warning(f"Could not parse broker code '{broker_code_str}': {e}")
+                                # Count occurrences
+                                if broker_code not in broker_code_counts:
+                                    broker_code_counts[broker_code] = 0
+                                broker_code_counts[broker_code] += 1
+                        except:
                             continue
 
-            # Method 1b: Check Broker Name column if broker code didn't match
-            if 'Broker Name' in df.columns:
-                broker_names = df['Broker Name'].dropna().astype(str).str.upper().str.strip()
-                if len(broker_names) > 0:
-                    broker_name = broker_names.iloc[0]
-                    logger.info(f"Checking broker name: {broker_name}")
+            # Find most common broker code
+            if broker_code_counts:
+                most_common_code = max(broker_code_counts, key=broker_code_counts.get)
+                occurrences = broker_code_counts[most_common_code]
 
-                    # Match by broker name
-                    if 'EQUIRUS' in broker_name:
-                        broker_info = get_broker_by_code(13017)
-                        if broker_info:
-                            logger.info(f"Detected Equirus from Broker Name column")
-                            return broker_info
-                    elif 'ANTIQUE' in broker_name:
-                        broker_info = get_broker_by_code(12987)
-                        if broker_info:
-                            logger.info(f"Detected Antique from Broker Name column")
-                            return broker_info
-                    elif 'KOTAK' in broker_name:
-                        broker_info = get_broker_by_code(8081)
-                        if broker_info:
-                            logger.info(f"Detected Kotak from Broker Name column")
-                            return broker_info
-                    elif 'ICICI' in broker_name:
-                        broker_info = get_broker_by_code(7730)
-                        if broker_info:
-                            logger.info(f"Detected ICICI from Broker Name column")
-                            return broker_info
-                    elif 'IIFL' in broker_name:
-                        broker_info = get_broker_by_code(10975)
-                        if broker_info:
-                            logger.info(f"Detected IIFL from Broker Name column")
-                            return broker_info
-                    elif 'AXIS' in broker_name:
-                        broker_info = get_broker_by_code(13872)
-                        if broker_info:
-                            logger.info(f"Detected Axis from Broker Name column")
-                            return broker_info
-                    elif 'EDELWEISS' in broker_name or 'NUVAMA' in broker_name:
-                        broker_info = get_broker_by_code(11933)
-                        if broker_info:
-                            logger.info(f"Detected Edelweiss/Nuvama from Broker Name column")
-                            return broker_info
-                    elif 'MORGAN' in broker_name or 'MS' in broker_name:
-                        broker_info = get_broker_by_code(10542)
-                        if broker_info:
-                            logger.info(f"Detected Morgan Stanley from Broker Name column")
-                            return broker_info
+                broker_info = get_broker_by_code(most_common_code)
+                if broker_info:
+                    logger.info(f"✓ Detected {broker_info['name']} from broker code {most_common_code} ({occurrences} occurrence(s) in file data)")
+                    return broker_info
+                else:
+                    logger.warning(f"Found broker code {most_common_code} ({occurrences} occurrences) but it's not in registry")
 
-            # Method 2: Detect by column structure (for files without broker code or Kotak format)
-            # Kotak has: 'Scrip', 'Instrument', 'Lots traded', 'Traded Price', 'Brokerage', 'Total Taxes'
+            # PRIORITY 3: Column structure detection (LAST RESORT - only for files without broker codes)
+            logger.info("Step 3: Falling back to column structure detection (less reliable)...")
+
+            # Morgan Stanley: Special case - doesn't have broker code column
+            # Signature columns: 'Commission (Taxable Value)', 'Central GST*', 'State GST**', 'WAP'
+            morgan_indicators = ['Commission (Taxable Value)', 'Central GST*', 'State GST**', 'WAP']
+            if all(col in df.columns for col in morgan_indicators):
+                broker_info = get_broker_by_code(10542)  # Morgan Stanley
+                if broker_info:
+                    logger.info(f"✓ Detected Morgan Stanley from column structure (no broker code column)")
+                    return broker_info
+
+            # Kotak: 'Scrip', 'Instrument', 'Lots traded', 'Traded Price', 'Brokerage'
             kotak_indicators = ['Scrip', 'Lots traded', 'Traded Price', 'Brokerage']
             if all(col in df.columns for col in kotak_indicators):
-                broker_info = get_broker_by_code(8081)  # Kotak code
+                broker_info = get_broker_by_code(8081)
                 if broker_info:
-                    logger.info(f"Detected Kotak broker from column structure")
+                    logger.warning(f"Detected Kotak from column structure (no broker code found in data)")
                     return broker_info
 
-            # IIFL has: 'CustodianCode', 'OptionType', 'BuySellStatus', 'ConfPrice', 'BrokValue'
+            # IIFL: 'CustodianCode', 'OptionType', 'BuySellStatus', 'ConfPrice', 'BrokValue'
             iifl_indicators = ['CustodianCode', 'OptionType', 'BuySellStatus', 'ConfPrice', 'BrokValue']
             if all(col in df.columns for col in iifl_indicators):
-                broker_info = get_broker_by_code(10975)  # IIFL code
+                broker_info = get_broker_by_code(10975)
                 if broker_info:
-                    logger.info(f"Detected IIFL broker from column structure")
+                    logger.warning(f"Detected IIFL from column structure (no broker code found in data)")
                     return broker_info
 
-            # Axis has: 'CP Code', 'Buy/Sell', 'OptType', 'Contract Lot', 'Total Charges'
+            # Axis: 'CP Code', 'Buy/Sell', 'OptType', 'Contract Lot', 'Total Charges'
             axis_indicators = ['CP Code', 'Buy/Sell', 'OptType', 'Contract Lot', 'Total Charges']
             if all(col in df.columns for col in axis_indicators):
-                broker_info = get_broker_by_code(13872)  # Axis code
+                broker_info = get_broker_by_code(13872)
                 if broker_info:
-                    logger.info(f"Detected Axis broker from column structure")
+                    logger.warning(f"Detected Axis from column structure (no broker code found in data)")
                     return broker_info
 
-            # NOTE: Equirus and Antique have IDENTICAL column structures
-            # We CANNOT detect them by columns alone - they MUST have Broker Code column
-            # If detected by structure, we'll use Equirus parser as default (it reads broker code from each row)
-            equirus_antique_indicators = ['Scrip Code', 'Call / Put', 'Pure Brokerage AMT', 'CP Code']
-            if all(col in df.columns for col in equirus_antique_indicators):
-                # Default to Equirus parser (will read actual broker code from file data)
-                broker_info = get_broker_by_code(13017)
-                if broker_info:
-                    logger.warning(f"Detected Equirus/Antique format by column structure - using Equirus parser (will read actual broker code from row data)")
-                    return broker_info
-
-            # Edelweiss has: 'Market Lot Size', 'No Of Traded Lots', 'OptType', 'Net Amount'
+            # Edelweiss: 'Market Lot Size', 'No Of Traded Lots', 'OptType', 'Net Amount'
             edelweiss_indicators = ['Market Lot Size', 'No Of Traded Lots', 'OptType', 'Net Amount']
             if all(col in df.columns for col in edelweiss_indicators):
-                broker_info = get_broker_by_code(11933)  # Edelweiss code
+                broker_info = get_broker_by_code(11933)
                 if broker_info:
-                    logger.info(f"Detected Edelweiss broker from column structure")
+                    logger.warning(f"Detected Edelweiss from column structure (no broker code found in data)")
                     return broker_info
 
-            logger.warning("No broker code column or recognizable structure found in file")
-            logger.warning(f"File columns were: {list(df.columns)}")
-            logger.warning(f"First row of data: {df.iloc[0].to_dict() if len(df) > 0 else 'No data'}")
+            # Equirus/Antique: IDENTICAL formats - CANNOT detect by structure alone
+            # These MUST be detected by broker name/code in data
+            equirus_antique_indicators = ['Scrip Code', 'Call / Put', 'Pure Brokerage AMT', 'CP Code']
+            if all(col in df.columns for col in equirus_antique_indicators):
+                logger.error(f"File has Equirus/Antique format but no broker name or code found in data")
+                logger.error(f"Cannot distinguish between Equirus and Antique without broker identification")
+                logger.error(f"Please ensure file contains 'Broker Code' column or broker name in data")
+                return {
+                    'error': 'detection_failed',
+                    'columns': list(df.columns),
+                    'first_row': df.iloc[0].to_dict() if len(df) > 0 else None,
+                    'read_error': 'Equirus/Antique format detected but cannot determine which broker - missing broker code/name in data'
+                }
 
-            # Return diagnostic info for UI display
+            logger.error("Could not detect broker from file")
+            logger.error(f"File columns: {list(df.columns)}")
+            logger.error(f"First row sample: {df.iloc[0].to_dict() if len(df) > 0 else 'No data'}")
+
             return {
                 'error': 'detection_failed',
                 'columns': list(df.columns),
