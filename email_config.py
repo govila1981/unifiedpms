@@ -85,6 +85,9 @@ EMAIL_TEMPLATES = {
     <li><strong>Final Positions:</strong> {final_positions}</li>
 </ul>
 
+<h3>Pre vs Post Trade Summary:</h3>
+{pre_post_summary}
+
 <h3>Attached Files:</h3>
 <ul>
     {file_list}

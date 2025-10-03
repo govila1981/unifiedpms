@@ -100,6 +100,12 @@ class OutputGenerator:
 
         # Send email if requested
         if send_email and email_recipients:
+            # Calculate pre vs post trade summary
+            pre_post_summary = self._generate_pre_post_summary(
+                starting_positions_df,
+                final_positions_df
+            )
+
             self._send_completion_email(
                 output_files=output_files,
                 email_recipients=email_recipients,
@@ -108,7 +114,8 @@ class OutputGenerator:
                     'total_trades': len(parsed_trades_df),
                     'starting_positions': len(starting_positions_df),
                     'final_positions': len(final_positions_df)
-                }
+                },
+                pre_post_summary=pre_post_summary
             )
 
         return output_files
@@ -568,8 +575,67 @@ class OutputGenerator:
         
         return pd.DataFrame(trades_data)
 
+    def _generate_pre_post_summary(self, starting_positions_df: pd.DataFrame,
+                                   final_positions_df: pd.DataFrame) -> pd.DataFrame:
+        """Generate pre vs post trade summary table"""
+        try:
+            # Group positions by underlying
+            def group_by_underlying(df):
+                if df.empty:
+                    return {}
+
+                grouped = {}
+                for _, row in df.iterrows():
+                    underlying = row.get('Underlying', '')
+                    if not underlying:
+                        continue
+
+                    if underlying not in grouped:
+                        grouped[underlying] = {'net_position': 0, 'net_deliverable': 0}
+
+                    position = float(row.get('Position (Lots)', 0))
+                    deliverable = float(row.get('Net Deliverable', 0))
+
+                    grouped[underlying]['net_position'] += position
+                    grouped[underlying]['net_deliverable'] += deliverable
+
+                return grouped
+
+            pre_grouped = group_by_underlying(starting_positions_df)
+            post_grouped = group_by_underlying(final_positions_df)
+
+            # Get all unique underlyings
+            all_underlyings = sorted(set(list(pre_grouped.keys()) + list(post_grouped.keys())))
+
+            # Build comparison data
+            comparison_data = []
+            for underlying in all_underlyings:
+                pre_data = pre_grouped.get(underlying, {'net_position': 0, 'net_deliverable': 0})
+                post_data = post_grouped.get(underlying, {'net_position': 0, 'net_deliverable': 0})
+
+                pos_change = post_data['net_position'] - pre_data['net_position']
+                deliv_change = post_data['net_deliverable'] - pre_data['net_deliverable']
+
+                # Only include rows with changes
+                if pos_change != 0:
+                    comparison_data.append({
+                        'Underlying': underlying,
+                        'Pre Position': round(pre_data['net_position'], 2),
+                        'Post Position': round(post_data['net_position'], 2),
+                        'Position Change': round(pos_change, 2),
+                        'Pre Deliverable': round(pre_data['net_deliverable'], 2),
+                        'Post Deliverable': round(post_data['net_deliverable'], 2),
+                        'Deliverable Change': round(deliv_change, 2)
+                    })
+
+            return pd.DataFrame(comparison_data)
+
+        except Exception as e:
+            logger.error(f"Error generating pre/post summary: {e}")
+            return pd.DataFrame()
+
     def _send_completion_email(self, output_files: Dict[str, Path], email_recipients: List[str],
-                               file_filter: Dict[str, bool], stats: Dict):
+                               file_filter: Dict[str, bool], stats: Dict, pre_post_summary: pd.DataFrame = None):
         """Send email notification when processing is complete"""
         if not email_recipients:
             logger.info("No email recipients specified - skipping email")
@@ -597,7 +663,8 @@ class OutputGenerator:
                 timestamp=self.timestamp,
                 output_files=output_files,
                 stats=stats,
-                file_filter=file_filter
+                file_filter=file_filter,
+                pre_post_summary=pre_post_summary
             )
 
             if success:

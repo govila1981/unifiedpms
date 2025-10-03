@@ -204,56 +204,12 @@ class PriceManager:
         return None
 
     def _fetch_from_yahoo(self, ticker: str) -> Optional[float]:
-        """Fetch price from Yahoo Finance"""
-        try:
-            # Clean the ticker
-            ticker_clean = ticker.strip().upper()
-
-            # Remove Bloomberg suffixes
-            for suffix in [' EQUITY', ' INDEX', '-EQ', '_EQ', '.EQ', '-BE', '.BE', '-BZ', '.BZ']:
-                if ticker_clean.endswith(suffix):
-                    ticker_clean = ticker_clean[:-len(suffix)]
-                    break
-
-            # Special handling for indices
-            index_mapping = {
-                'NIFTY': '^NSEI',
-                'NIFTY50': '^NSEI',
-                'NZ': '^NSEI',
-                'BANKNIFTY': '^NSEBANK',
-                'AF': '^NSEBANK',
-                'NSEBANK': '^NSEBANK',
-                'FINNIFTY': '^CNXFIN',
-                'MIDCPNIFTY': '^NSEMDCP50',
-                'SENSEX': '^BSESN',
-            }
-
-            yahoo_ticker = index_mapping.get(ticker_clean)
-
-            if not yahoo_ticker:
-                # Try with .NS suffix for NSE stocks
-                yahoo_ticker = f"{ticker_clean}.NS"
-
-            # Fetch from Yahoo
-            stock = yf.Ticker(yahoo_ticker)
-            data = stock.history(period='1d')
-
-            if not data.empty:
-                price = data['Close'].iloc[-1]
-                logger.info(f"Fetched {ticker} -> {yahoo_ticker}: {price}")
-                return float(price)
-
-            # Try without .NS suffix
-            if yahoo_ticker.endswith('.NS'):
-                stock = yf.Ticker(ticker_clean)
-                data = stock.history(period='1d')
-                if not data.empty:
-                    price = data['Close'].iloc[-1]
-                    return float(price)
-
-        except Exception as e:
-            logger.debug(f"Yahoo fetch failed for {ticker}: {str(e)}")
-
+        """
+        Fetch price from Yahoo Finance - DEPRECATED
+        This method is kept for backwards compatibility but is no longer recommended.
+        Use SimplePriceManager with default_stocks.csv instead.
+        """
+        logger.warning("PriceManager._fetch_from_yahoo() is deprecated - use SimplePriceManager instead")
         return None
 
     def get_all_prices(self) -> Dict[str, float]:

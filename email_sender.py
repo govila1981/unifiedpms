@@ -177,7 +177,8 @@ class EmailSender:
                             timestamp: str,
                             output_files: Dict[str, Path],
                             stats: Dict,
-                            file_filter: Dict[str, bool] = None) -> bool:
+                            file_filter: Dict[str, bool] = None,
+                            pre_post_summary = None) -> bool:
         """
         Send Stage 1 completion email
 
@@ -234,6 +235,11 @@ class EmailSender:
         fund_name = self._get_fund_name(account_prefix)
         date = datetime.now().strftime('%d/%m/%Y')
 
+        # Generate pre vs post trade summary HTML table
+        pre_post_html = '<p><em>No position changes detected</em></p>'
+        if pre_post_summary is not None and not pre_post_summary.empty:
+            pre_post_html = self._generate_summary_table_html(pre_post_summary)
+
         template_data = {
             'fund_name': fund_name,
             'date': date,
@@ -242,7 +248,8 @@ class EmailSender:
             'total_trades': stats.get('total_trades', 0),
             'starting_positions': stats.get('starting_positions', 0),
             'final_positions': stats.get('final_positions', 0),
-            'file_list': file_list
+            'file_list': file_list,
+            'pre_post_summary': pre_post_html
         }
 
         return self.send_from_template(
@@ -358,6 +365,54 @@ class EmailSender:
             to_emails=to_emails,
             template_data=template_data
         )
+
+    def _generate_summary_table_html(self, df) -> str:
+        """Generate HTML table from pre/post trade summary DataFrame"""
+        if df.empty:
+            return '<p>No position changes</p>'
+
+        html = '''
+        <table style="border-collapse: collapse; width: 100%; font-size: 12px;">
+            <thead>
+                <tr style="background-color: #f0f0f0;">
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Underlying</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Pre Position</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Post Position</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Position Δ</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Pre Deliverable</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Post Deliverable</th>
+                    <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Deliverable Δ</th>
+                </tr>
+            </thead>
+            <tbody>
+        '''
+
+        for _, row in df.iterrows():
+            pos_change = row['Position Change']
+            deliv_change = row['Deliverable Change']
+
+            # Color code changes
+            pos_color = 'green' if pos_change > 0 else ('red' if pos_change < 0 else 'black')
+            deliv_color = 'green' if deliv_change > 0 else ('red' if deliv_change < 0 else 'black')
+
+            html += f'''
+                <tr>
+                    <td style="border: 1px solid #ddd; padding: 8px;">{row['Underlying']}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">{row['Pre Position']:.2f}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">{row['Post Position']:.2f}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right; color: {pos_color}; font-weight: bold;">{pos_change:+.2f}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">{row['Pre Deliverable']:.2f}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">{row['Post Deliverable']:.2f}</td>
+                    <td style="border: 1px solid #ddd; padding: 8px; text-align: right; color: {deliv_color}; font-weight: bold;">{deliv_change:+.2f}</td>
+                </tr>
+            '''
+
+        html += '''
+            </tbody>
+        </table>
+        '''
+
+        return html
 
     def _get_fund_name(self, account_prefix: str) -> str:
         """Get fund name from account prefix"""

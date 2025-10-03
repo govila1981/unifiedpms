@@ -560,6 +560,21 @@ def main():
                         st.success(f"✓ {pm.price_source}")
                         st.rerun()
 
+            # Show download button if prices have been fetched
+            if pm.price_source and "Yahoo Finance" in pm.price_source:
+                updated_csv = pm.get_updated_csv_dataframe()
+                if updated_csv is not None:
+                    st.info("💾 Prices updated! Download CSV to save changes:")
+                    csv_data = updated_csv.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Updated default_stocks.csv",
+                        data=csv_data,
+                        file_name="default_stocks_updated.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        help="Download this file and replace your default_stocks.csv to persist the updated prices"
+                    )
+
             with col2:
                 price_file = st.file_uploader(
                     "Or Upload Prices",
@@ -1033,10 +1048,10 @@ def process_stage1(position_file, trade_file, mapping_file, use_default, default
 
             # Format date columns as DD/MM/YYYY
             if 'Expiry Dt' in final_enhanced_clearing_df.columns:
-                final_enhanced_clearing_df['Expiry Dt'] = pd.to_datetime(final_enhanced_clearing_df['Expiry Dt'], errors='coerce').dt.strftime('%d/%m/%Y')
+                final_enhanced_clearing_df['Expiry Dt'] = pd.to_datetime(final_enhanced_clearing_df['Expiry Dt'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
             if 'TD' in final_enhanced_clearing_df.columns:
                 final_enhanced_clearing_df['TD'] = final_enhanced_clearing_df['TD'].apply(
-                    lambda x: pd.to_datetime(x, errors='coerce').strftime('%d/%m/%Y') if pd.notna(x) and x != '' else ''
+                    lambda x: pd.to_datetime(x, dayfirst=True, errors='coerce').strftime('%d/%m/%Y') if pd.notna(x) and x != '' else ''
                 )
 
             final_enhanced_clearing_df.to_csv(final_enhanced_file, index=False)
