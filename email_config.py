@@ -24,7 +24,13 @@ class EmailConfig:
 
     @classmethod
     def from_streamlit_secrets(cls):
-        """Load configuration from Streamlit secrets"""
+        """Load configuration from Streamlit secrets (with environment variable fallback)"""
+        # Priority 1: Try environment variables first (for Railway/production)
+        env_config = cls.from_env()
+        if env_config.is_configured():
+            return env_config
+
+        # Priority 2: Try Streamlit secrets (for local development)
         if not STREAMLIT_AVAILABLE:
             return cls(sendgrid_api_key='', from_email='', from_name='')
 
