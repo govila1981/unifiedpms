@@ -1,36 +1,82 @@
-# 📊 Trade Processing Pipeline
+# 📊 Unified Trade Processing Pipeline
 
-A comprehensive trading strategy processing system for financial derivatives with automatic strategy assignment (FULO/FUSH), deliverables calculation, expiry-based grouping, and PMS reconciliation.
+A comprehensive trade processing system for financial derivatives with automatic strategy assignment, broker reconciliation, deliverables calculation, email automation, and multi-account support.
 
-## 🌟 Features
+## 🌟 Key Features
 
-### Core Processing
-- **Multi-Format Support**: Bloomberg BOD, Contract, and MS formats
+### 🎯 Core Trade Processing
+- **Multi-Format Support**: Bloomberg BOD, Contract, and MS formats with auto-detection
+- **Encrypted File Handling**: Automatic password detection for encrypted Excel files (Aurigin2017/Aurigin2024)
+- **Account Validation**: Auto-detection of account prefix from CP codes in files
 - **Automatic Strategy Assignment**: FULO (Following) and FUSH (Opposing) strategies
-- **Bloomberg Ticker Generation**: Automatic ticker creation for derivatives
-- **Trade Splitting**: Intelligent handling of partial offsetting trades
-- **Position Tracking**: Real-time pre/post-trade position monitoring
-- **Encrypted File Support**: Password-protected Excel file handling
+- **Bloomberg Ticker Generation**: Automatic ticker creation for all derivatives
+- **Intelligent Trade Splitting**: Handles partial offsetting trades with precision
+- **Position Tracking**: Real-time pre/post-trade position monitoring with change detection
 
-### Advanced Analytics
-- **Physical Deliverables Calculation**: ITM/OTM determination with spot prices
+### 📨 Email Automation
+- **SendGrid Integration**: Automated email reports via SendGrid API
+- **Smart Recipients**: Toggle operations@ email + add custom recipients
+- **Customizable Subjects**: Preset suffixes (FnO position recon, EOD FnO trade recon) + custom text
+- **Pre vs Post Summary**: Inline table showing position changes in email body
+- **Selective Attachments**: Choose which reports to attach (5MB file size warnings)
+- **Trade Date Formatting**: All emails show trade date in DD-MMM-YYYY format (e.g., 03-Oct-2025)
+
+### 🔄 Broker Reconciliation
+- **Multi-Broker Support**: Axis, ICICI, Kotak, Zerodha with auto-detection
+- **Enhanced Clearing File**: Adds Comms, Taxes, and TD columns to clearing file
+- **4-Sheet Reconciliation Report**:
+  - Matched Trades (with commissions and taxes)
+  - Unmatched Clearing Trades
+  - Unmatched Broker Trades
+  - Trade Breaks Analysis
+- **Match Rate Calculation**: Tracks reconciliation percentage
+
+### 📊 Advanced Analytics
+- **Physical Deliverables**: ITM/OTM determination with live spot prices
 - **Intrinsic Value Analysis**: Options IV calculation in INR and USD
 - **Expiry-Based Grouping**: Delivery obligations organized by expiry date
-- **PMS Reconciliation**: Position verification against portfolio management systems
-- **Multi-View Position Analysis**:
-  - By Underlying Asset (with collapsible groups)
-  - By Expiry Date
-  - Pre vs Post Trade Comparison
+- **PMS Reconciliation**: Position verification against portfolio systems
+- **Pre vs Post Comparison**: Visual tables showing position changes by underlying
 
-### Integration & Outputs
-- **ACM Format Mapping**: Automatic conversion to ACM ListedTrades format
-- **Excel Report Generation**: Multi-sheet workbooks with formatting and Bloomberg formulas
-- **Centralized Price Management**: Yahoo Finance integration + manual price upload
-- **Position Caching**: Remembers files and prices for easy re-runs
+### 🎨 Smart Outputs
+- **Account-Prefixed Files**: All files automatically prefixed with account name (e.g., AURIGIN_)
+- **Trade Date Naming**: Files named with trade date (DD-MMM-YYYY) not processing date
+- **ACM Format Export**: Ready-to-upload ACM ListedTrades format
+- **Multi-Sheet Excel Reports**: Formatted workbooks with Bloomberg formulas
+- **Centralized Price Manager**: Yahoo Finance + manual price upload with caching
 
-## 🚀 Live Demo
+## 🚀 Quick Start
 
-**[Access the application here](https://your-app-url.streamlit.app)** *(Update URL after deployment)*
+### Local Installation
+
+```bash
+# Clone repository
+git clone <repository-url>
+cd unifiedpms
+
+# Create virtual environment (recommended)
+python -m venv venv
+venv\Scripts\activate  # Windows
+source venv/bin/activate  # Mac/Linux
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the application
+streamlit run unified-streamlit-app.py
+```
+
+### Railway Deployment
+
+```bash
+# Railway will auto-detect Python and use:
+# Build: pip install -r requirements.txt
+# Start: streamlit run unified-streamlit-app.py --server.port $PORT
+
+# Set environment variables in Railway:
+SENDGRID_API_KEY=your_api_key
+SENDGRID_FROM_EMAIL=your_email@domain.com
+```
 
 ## 📋 Requirements
 
@@ -40,230 +86,249 @@ A comprehensive trading strategy processing system for financial derivatives wit
 - openpyxl >= 3.1.0
 - yfinance >= 0.2.33
 - msoffcrypto-tool >= 5.0.0
+- sendgrid >= 6.11.0 (for email features)
 
 See `requirements.txt` for complete list
-
-## 💻 Local Installation
-
-### Quick Start
-```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/trade-processing-pipeline.git
-cd trade-processing-pipeline
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-streamlit run app.py
-```
-
-### With Virtual Environment (Recommended)
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-streamlit run app.py
-```
 
 ## 📖 Usage Guide
 
 ### Basic Workflow
 
 1. **Upload Files** (Sidebar)
-   - Position File (BOD/Contract/MS format)
-   - Trade File (MS format)
-   - Mapping File (use default `futures mapping.csv` or upload custom)
+   - Position File: BOD/Contract/MS format (password-protected files auto-detected)
+   - Trade File: MS format (encrypted files supported)
+   - Optional: Futures mapping file
 
-2. **Set Exchange Rate**
+2. **Account Validation**
+   - System auto-detects account from CP codes
+   - All output files prefixed with account name (e.g., AURIGIN_)
+
+3. **Set Exchange Rate**
    - Enter USD/INR rate (default: 88.0)
 
-3. **Fetch Prices**
-   - Click "📊 Fetch Yahoo Prices" for automatic price fetch
-   - Or upload manual price file (CSV/Excel with Symbol and Price columns)
+4. **Fetch Prices**
+   - Auto-fetch from Yahoo Finance
+   - Or upload manual price CSV/Excel
 
-4. **Optional: Enable PMS Reconciliation**
-   - Check the box if you want to compare with PMS
-   - Upload PMS file
+5. **Run Stage 1: Trade Processing**
+   - Processes trades with strategy assignment
+   - Generates enhanced clearing file
 
-5. **Run Pipeline**
-   - Click "⚡ Run Complete Enhanced Pipeline"
-   - All features run automatically (deliverables, expiry reports, etc.)
+6. **Optional: Broker Reconciliation**
+   - Upload broker contract notes (auto-detects broker)
+   - Generate reconciliation report with commissions/taxes
 
-6. **View Results**
-   - Navigate through tabs to see different analyses
-   - Download outputs from the Downloads tab
+7. **Run Stage 2: ACM Mapping**
+   - Converts to ACM ListedTrades format
+   - Validates all required fields
 
-### Sticky File Behavior
+8. **Generate Reports**
+   - Deliverables calculation
+   - Expiry delivery reports
+   - Positions by underlying
 
-The app remembers your files between runs:
-- ✅ Upload position file once → cached for future runs
-- ✅ Upload new trade file → uses cached position file
+9. **Send Email**
+   - Select reports to attach
+   - Choose recipients and subject suffix
+   - Send via SendGrid
+
+### Encrypted Files
+
+The system automatically handles password-protected Excel files:
+- Tries known passwords: `Aurigin2017`, `Aurigin2024`
+- Only prompts for password if known passwords fail
+- Works for both position and trade files
+
+### File Caching
+
+Files persist in session for easy re-runs:
+- ✅ Upload position file once → cached
+- ✅ Upload new trade file → uses cached position
 - ✅ Prices persist in session
-- ✅ Just upload new trade file and re-run for "what-if" scenarios
-
-### Re-running with New Prices
-
-Keep same files but update prices:
-1. Files remain cached (position, trade, mapping)
-2. Click "Fetch Yahoo Prices" or upload new price file
-3. Click "Run Complete Enhanced Pipeline"
-4. All calculations update with new prices
+- ✅ Re-run with different parameters without re-uploading
 
 ## 📂 Project Structure
 
 ```
-trade-processing-pipeline/
-├── app.py                          # Main Streamlit application
+unifiedpms/
+├── unified-streamlit-app.py        # Main application (use this)
+├── cli-pipeline.py                 # Command-line interface
+│
+├── Core Processing Modules
 ├── input_parser.py                 # Position file parser
 ├── Trade_Parser.py                 # Trade file parser
 ├── position_manager.py             # Position state management
 ├── trade_processor.py              # Strategy assignment logic
 ├── output_generator.py             # File output generation
-├── acm_mapper.py                   # ACM format conversion
-├── deliverables_calculator.py      # Deliverables & IV calculation
-├── positions_grouper.py            # Position grouping utilities
-├── simple_price_manager.py         # Centralized price management
+│
+├── Advanced Features
+├── account_validator.py            # Account prefix detection
+├── trade_reconciliation.py         # Broker reconciliation
+├── broker_parser.py                # Multi-broker parser
+├── broker_config.py                # Broker registry
+├── deliverables_calculator.py      # Deliverables & IV
+├── expiry_delivery_module.py       # Expiry deliveries
 ├── enhanced_recon_module.py        # PMS reconciliation
-├── expiry_delivery_module.py       # Expiry delivery generation
-├── encrypted_file_handler.py       # Password-protected file handling
-├── bloomberg_ticker_generator.py   # Ticker generation utilities
+│
+├── Integration & Support
+├── acm_mapper.py                   # ACM format conversion
+├── email_sender.py                 # SendGrid integration
+├── email_config.py                 # Email templates
+├── encrypted_file_handler.py       # Password-protected files
+├── simple_price_manager.py         # Price management
+├── positions_grouper.py            # Position grouping
+├── bloomberg_ticker_generator.py   # Ticker generation
 ├── excel_writer.py                 # Excel formatting
-├── price_manager.py                # Price fetching
-├── default_stocks.csv              # Default symbol mappings
-├── futures mapping.csv             # Default futures lot sizes
+│
+├── Configuration Files
+├── account_config.py               # Account registry
+├── futures mapping.csv             # Default lot sizes
 ├── requirements.txt                # Python dependencies
-├── .gitignore                      # Git ignore rules
-└── .streamlit/
-    └── config.toml                 # Streamlit configuration
+└── README.md                       # This file
 ```
 
 ## 📊 Output Files
 
-### Stage 1: Strategy Processing
-- `output_1_parsed_trades_[timestamp].csv` - Raw parsed trades
-- `output_2_starting_positions_[timestamp].csv` - Initial positions
-- `output_3_processed_trades_[timestamp].csv` - Trades with strategies
-- `output_4_final_positions_[timestamp].csv` - Post-trade positions
-- `summary_report_[timestamp].txt` - Processing summary
+All files are prefixed with account name and use trade date (DD-MMM-YYYY format).
+
+### Stage 1: Trade Processing
+- `AURIGIN_stage1_1_parsed_trades_03-Oct-2025.csv`
+- `AURIGIN_stage1_2_starting_positions_03-Oct-2025.csv`
+- `AURIGIN_stage1_3_processed_trades_03-Oct-2025.csv`
+- `AURIGIN_stage1_4_final_positions_03-Oct-2025.csv`
+- `AURIGIN_summary_report_03-Oct-2025.txt`
+- `AURIGIN_final_enhanced_clearing_03-Oct-2025.csv` - With Comms, Taxes, TD columns
 
 ### Stage 2: ACM Mapping
-- `acm_listedtrades_[timestamp].csv` - ACM format output
-- `acm_listedtrades_[timestamp].xlsx` - Excel version
-- `acm_listedtrades_[timestamp]_errors.csv` - Validation errors
-- `acm_schema_used_[timestamp].xlsx` - Schema reference
+- `AURIGIN_acm_listedtrades_03-Oct-2025.csv`
+- `AURIGIN_acm_listedtrades_03-Oct-2025_errors.csv`
+- `AURIGIN_acm_schema_used_03-Oct-2025.xlsx`
 
-### Deliverables Reports (Auto-Generated)
-- `DELIVERABLES_REPORT_[timestamp].xlsx` - Physical deliverables analysis
-  - PRE_Master_All_Expiries
-  - POST_Master_All_Expiries
-  - PRE_Expiry_[date] (per expiry)
-  - POST_Expiry_[date] (per expiry)
-  - PRE_IV_All_Expiries
-  - POST_IV_All_Expiries
+### Broker Reconciliation
+- `AURIGIN_broker_recon_report_03-Oct-2025.xlsx` - 4 sheets
+- `AURIGIN_clearing_enhanced_03-Oct-2025.csv` - Enhanced clearing file
+
+### Deliverables & Analytics
+- `AURIGIN_DELIVERABLES_REPORT_03-Oct-2025.xlsx`
+  - Pre/Post Master sheets (all expiries)
+  - Per-expiry sheets
+  - IV analysis sheets
   - Comparison sheet
-
-### Expiry Deliveries (Auto-Generated)
-- `EXPIRY_[date].xlsx` - Per-expiry delivery reports
-  - Physical delivery trades per expiry
-  - Tax calculations (STT, stamp duty)
-  - Comprehensive delivery obligations
-
-### Position Grouping
-- `positions_by_underlying_[timestamp].xlsx` - Grouped position analysis
+- `AURIGIN_positions_by_underlying_03-Oct-2025.xlsx`
+  - Collapsible groups by underlying
   - Summary sheet
-  - Master_All_Positions (collapsible by underlying)
 
-### PMS Reconciliation (Optional)
-- `PMS_RECONCILIATION_[timestamp].xlsx` - Position reconciliation
-  - Executive Summary
-  - Pre-Trade reconciliation
-  - Post-Trade reconciliation
-  - Trade Impact Analysis
+### Expiry Deliveries
+- `AURIGIN_EXPIRY_DELIVERY_27-Jan-2025.xlsx` - Per expiry
+  - Physical delivery obligations
+  - Tax calculations (STT, stamp duty)
+
+## 📧 Email Configuration
+
+### Setup (One-time)
+
+1. **Get SendGrid API Key**
+   - Sign up at sendgrid.com
+   - Create API key with Mail Send permission
+   - Verify sender email address
+
+2. **Configure Environment Variables**
+
+**For Local Development (.env file):**
+```bash
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxx
+SENDGRID_FROM_EMAIL=your_email@domain.com
+SENDGRID_FROM_NAME=Aurigin Trade Processing
+```
+
+**For Railway Deployment:**
+Add in Railway dashboard → Variables:
+```
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxx
+SENDGRID_FROM_EMAIL=your_email@domain.com
+SENDGRID_FROM_NAME=Aurigin Trade Processing
+```
+
+### Using Email Features
+
+1. **Process Trades** (Stage 1, Stage 2, etc.)
+2. **Navigate to Email Reports Tab**
+3. **Configure Recipients**:
+   - ☑ operations@aurigincm.com (toggle on/off)
+   - Add additional recipients (comma-separated)
+4. **Select Subject Suffix** (optional):
+   - ( ) None
+   - ( ) FnO position recon
+   - ( ) EOD FnO trade recon
+   - Or enter custom suffix
+5. **Select Reports to Attach**
+   - Check reports to include
+   - System warns if file > 5MB or total > 25MB
+6. **Send Email**
+
+### Email Subject Format
+
+```
+{Fund Name} | {Suffix} | {Trade Date}
+```
+
+Examples:
+- `Aurigin | EOD FnO trade recon | 03-Oct-2025`
+- `Aurigin | FnO position recon | 03-Oct-2025`
+- `Aurigin | Reports | 03-Oct-2025` (no suffix)
 
 ## 🔧 Configuration
 
 ### Input File Formats
 
 #### Position File
-Supported formats:
-- **BOD Format**: Bloomberg Beginning of Day format
-- **Contract Format**: Contract-based position format
+Supported formats (auto-detected):
+- **BOD Format**: Bloomberg Beginning of Day
+- **Contract Format**: Contract-based positions
 - **MS Format**: Morgan Stanley format
 
-Must include: Symbol, Quantity, Expiry (for derivatives)
+Required columns:
+- Symbol/Ticker
+- Quantity/Position
+- Expiry Date (for derivatives)
 
 #### Trade File
 MS Format with columns:
 - Symbol
 - B/S (Buy/Sell)
 - Quantity
-- Expiry Date (for derivatives)
-- Strike Price (for options)
-- Option Type (Call/Put for options)
+- Expiry Date
+- Strike Price (options)
+- Option Type (Call/Put)
+- TD column (trade date)
 
-#### Mapping File (Optional)
-CSV format with columns: Symbol, Ticker, Underlying, Exchange, Lot_Size
+#### Broker Files
+Supported brokers (auto-detected from filename/content):
+- Axis Securities
+- ICICI Securities
+- Kotak Securities
+- Zerodha
+
+File should be contract note in Excel/CSV format.
+
+### Mapping File
+CSV format: `Symbol,Ticker,Underlying,Exchange,Lot_Size`
 
 Example:
 ```csv
 Symbol,Ticker,Underlying,Exchange,Lot_Size
 NIFTY,NZ,NIFTY Index,NSE,50
 BANKNIFTY,AF,BANKNIFTY Index,NSE,25
-RELIANCE,RIL,RELIANCE Industries,NSE,1
 ```
-
-If not provided, uses `futures mapping.csv` from repository.
-
-#### PMS File Format (Optional)
-For reconciliation, PMS file should have:
-- Column: Symbol/Ticker (Bloomberg format)
-- Column: Position/Quantity (numeric)
-
-Example:
-```csv
-Symbol,Position
-RIL IS Equity,100
-NZH5 Index,-50
-TCS IS 03/27/25 C3500 Equity,25
-```
-
-### Settings
-
-**USD/INR Rate**: Default 88.0 (adjustable in sidebar)
-
-**Price Sources**:
-1. Yahoo Finance (automatic)
-   - NSE stocks: Symbol.NS
-   - Indices: ^NSEI, ^NSEBANK, ^NSEMDCP50
-2. Manual Upload (overrides Yahoo)
-   - CSV/Excel with Symbol/Ticker and Price columns
-
-**Lot Sizes** (priority order):
-1. Position/Trade file (if Lot Size column exists)
-2. Mapping file (futures mapping.csv)
-3. Default: 1
 
 ## 🎯 Key Concepts
 
-### Strategy Types
+### Strategy Assignment
 - **FULO (Following)**: Trade in same direction as position
 - **FUSH (Opposing)**: Trade opposite to position (offsetting)
-- Trades may be split if partially offsetting
+- Trades split automatically if partially offsetting
 
-### Deliverables Calculation
-
-**Net Deliverable Formula:**
+### Deliverables Formula
 ```
 Net Deliverable = Futures Position
                 + ITM Call Positions
@@ -272,90 +337,94 @@ Net Deliverable = Futures Position
 
 **By Security Type:**
 - **Futures**: Always deliver (Deliverable = Position)
-- **Call Options** (ITM when Spot > Strike): Deliverable = Position (long underlying)
-- **Put Options** (ITM when Spot < Strike): Deliverable = -Position (short underlying)
-- **OTM Options**: Deliverable = 0 (expire worthless)
+- **Call Options** (ITM when Spot > Strike): +Position
+- **Put Options** (ITM when Spot < Strike): -Position
+- **OTM Options**: 0 (expire worthless)
 
-**Intrinsic Value:**
-- Call IV = Max(0, Spot - Strike) × Position × Lot Size
-- Put IV = Max(0, Strike - Spot) × Position × Lot Size
-
-## 🔄 Reconciliation Process
-
-1. **Position Matching**: Compares Bloomberg tickers between system and PMS
-2. **Discrepancy Types**:
-   - **Matched**: Same position in both systems
-   - **Mismatch**: Different quantities for same ticker
-   - **Missing in PMS**: Position in system but not in PMS
-   - **Missing in System**: Position in PMS but not in system
-3. **Impact Analysis**: Shows how trades improved or deteriorated reconciliation
+### Account Detection
+System auto-detects account from CP code in files:
+- Position file CP → Account prefix
+- Trade file CP → Validates consistency
+- Mismatch → Warning + manual selection
 
 ## 🐛 Troubleshooting
 
-### "No positions found"
-- Check file format matches expected format (BOD/Contract/MS)
-- Verify file is not corrupted or password-protected
-- Try different format if uncertain
+### Encrypted Files
+**Issue**: "File is password protected"
+- System tries: Aurigin2017, Aurigin2024
+- If both fail, prompts for password
+- Works for .xls and .xlsx files
 
-### "Unmapped symbols"
-- Upload custom mapping file with missing symbols
-- Check symbol names match exactly (case-sensitive)
-- Review `MISSING_MAPPINGS_[timestamp].csv` output
-- Use `MAPPING_TEMPLATE_[timestamp].csv` to add to mapping file
+### Email Not Sending
+1. Check environment variables are set
+2. Verify SendGrid API key is valid
+3. Confirm sender email is verified in SendGrid
+4. Check file sizes (max 5MB per file, 25MB total)
+5. Review logs for detailed error messages
 
-### "Price not found" / Spot Price N/A
-- Click "📊 Fetch Yahoo Prices" to refresh
-- Upload manual price file with missing symbols
-- Check underlying format matches price manager keys
-- Verify Bloomberg codes match between files and price data
+### Account Prefix Issues
+- Upload files with CP codes
+- CP codes must match between position and trade files
+- Manual override available if auto-detection fails
 
-### Price Fetching Issues
-- Ensure internet connection for Yahoo Finance
-- Check symbol format (NSE stocks need .NS suffix)
-- Indices use special symbols (^NSEI, ^NSEBANK)
-- Yahoo Finance may have rate limits
+### Broker Reconciliation
+- Upload correct broker file (auto-detection may fail with custom formats)
+- Ensure date formats match
+- Check ticker formats are consistent
 
-### Memory Issues on Streamlit Cloud
-- Streamlit Cloud free tier: 1GB RAM limit
-- Process smaller batches if needed
-- Use CSV outputs for large datasets
+### Price Fetching
+- Yahoo Finance requires internet connection
+- NSE stocks need .NS suffix
+- Indices use special codes (^NSEI, ^NSEBANK)
+- Manual price upload always overrides Yahoo
 
-### Reconciliation Mismatches
-- Verify Bloomberg ticker format matches exactly
-- Check for trailing spaces in files
-- Ensure position signs are correct (+/- for long/short)
+### Railway/Cloud Deployment
+- Ensure all environment variables are set
+- Check Railway logs for errors
+- Streamlit Cloud/Railway have 1GB RAM limit
+- Large files may need local processing
 
-## 🤝 Contributing
+## 🔐 Security Notes
 
-This is a private/internal tool. For issues or feature requests, create an issue in this repository.
+- Keep `.env` file secure (never commit to git)
+- SendGrid API keys should have minimal permissions
+- Password-protected files use msoffcrypto (secure)
+- All email addresses validated before sending
+- Files uploaded to Streamlit Cloud are temporary
+
+## 📝 Version History
+
+**Version 5.0** (Current)
+- ✅ Broker reconciliation with multi-broker support
+- ✅ Email automation via SendGrid
+- ✅ Account prefix auto-detection
+- ✅ Encrypted file handling
+- ✅ Trade date extraction (DD-MMM-YYYY)
+- ✅ Pre vs Post trade summary in emails
+- ✅ Railway deployment ready
+
+**Version 4.0**
+- PMS reconciliation
+- Expiry delivery module
+- Enhanced position grouping
+
+**Version 3.0**
+- Deliverables calculation
+- ACM format mapping
+- Multi-view position analysis
+
+## 🤝 Support
+
+For issues or questions:
+- Create issue in repository
+- Contact: operations@aurigincm.com
 
 ## 📝 License
 
 Proprietary - Internal Use Only
 
-## 🔗 Resources
-
-- [Streamlit Documentation](https://docs.streamlit.io/)
-- [pandas Documentation](https://pandas.pydata.org/docs/)
-- [yfinance Documentation](https://github.com/ranaroussi/yfinance)
-- [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) - Deployment guide
-
-## 📧 Support
-
-For questions or support:
-- Create an issue in this repository
-- Contact: [Your contact information]
-
 ---
 
-**Version**: 4.0
-**Last Updated**: 2025-01-10
+**Last Updated**: October 2025
 **Powered by**: Streamlit + Python
-
-## 🔒 Important Notes
-
-- Yahoo Finance data is for reference only
-- Always verify deliverables with official exchange data
-- PMS reconciliation should be reviewed by operations team
-- Keep sensitive position files secure
-- All calculations use simple date format (YYYY-MM-DD) for consistency
+**Deployment**: Railway + Streamlit Cloud Compatible

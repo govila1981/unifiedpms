@@ -475,10 +475,27 @@ class InputParser:
             contract_id = contract_id.strip()
             if contract_id.endswith(' -0'):
                 contract_id = contract_id[:-3]
-            
+
             parts = contract_id.split('-')
             parts = [p.strip() for p in parts]
-            
+
+            # Fix missing hyphens: if we have < 5 parts, try to detect symbol+date merged
+            # Pattern: SYMBOL followed directly by DATE (e.g., NIFTY26SEP2025)
+            if len(parts) < 5:
+                # Try to find a part that has letter+digit pattern indicating symbol merged with date
+                # Look for pattern: word characters followed by date format (digit+month+year)
+                fixed_parts = []
+                for part in parts:
+                    # Match: WORD (all letters) + DATE (1-2 digits + 3 letters + 4 digits)
+                    # Example: NIFTY26SEP2025 → NIFTY and 26SEP2025
+                    match = re.match(r'^([A-Z]+?)(\d{1,2}[A-Z]{3}\d{4}.*)$', part)
+                    if match:
+                        # Split this part into symbol and date
+                        fixed_parts.extend([match.group(1), match.group(2)])
+                    else:
+                        fixed_parts.append(part)
+                parts = fixed_parts
+
             if len(parts) < 5:
                 return None
             

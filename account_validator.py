@@ -5,9 +5,13 @@ Detects and validates CP codes across position and trade files
 
 import io
 import logging
+import re
 from typing import Optional, Tuple, Dict
 import pandas as pd
-from account_config import ACCOUNT_REGISTRY, get_account_by_cp_code, get_all_cp_codes
+from account_config import (
+    ACCOUNT_REGISTRY, get_account_by_cp_code, get_all_cp_codes,
+    get_account_by_entity_code, get_all_entity_codes, get_account_by_name
+)
 
 # Import encrypted file handler
 try:
@@ -104,6 +108,29 @@ class AccountValidator:
 
             # Debug: Log search text sample (first 500 chars)
             logger.debug(f"Search text sample for {file_type}: {search_text_upper[:500]}")
+
+            # Search for entity codes first (MS position files: "Entity Code : WASIAOPPSL")
+            entity_code_pattern = r'Entity\s*Code\s*:\s*(\w+)'
+            entity_match = re.search(entity_code_pattern, search_text_upper, re.IGNORECASE)
+
+            if entity_match:
+                entity_code = entity_match.group(1).strip()
+                logger.info(f"Found Entity Code: {entity_code} in {file_type} file")
+
+                # Try to map entity code to account
+                account = get_account_by_entity_code(entity_code)
+                if account:
+                    logger.info(f"✓ Mapped Entity Code {entity_code} to account: {account['name']} ({account['cp_code']})")
+                    return account
+                else:
+                    logger.warning(f"Entity Code {entity_code} found but not in registry")
+
+            # Search for account names (e.g., "AURIGIN", "WAFRA")
+            for account_data in ACCOUNT_REGISTRY.values():
+                account_name = account_data['name']
+                if account_name.upper() in search_text_upper:
+                    logger.info(f"✓ Found account name '{account_name}' in {file_type} file")
+                    return account_data
 
             # Search for each known CP code (case-insensitive)
             found_codes = []
