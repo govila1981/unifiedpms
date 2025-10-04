@@ -193,7 +193,10 @@ def display_stage1_results():
     with sub_tabs[0]:
         df = data['processed_trades']
         st.subheader("Processed Trades")
-        st.dataframe(df, use_container_width=True, height=400)
+        if df.empty:
+            st.info("No trades - running in position-only mode")
+        else:
+            st.dataframe(df, use_container_width=True, height=400)
     
     with sub_tabs[1]:
         df = data['starting_positions']
@@ -208,7 +211,10 @@ def display_stage1_results():
     with sub_tabs[3]:
         df = data['parsed_trades']
         st.subheader("Parsed Trades")
-        st.dataframe(df, use_container_width=True, height=400)
+        if df.empty:
+            st.info("No trades - running in position-only mode")
+        else:
+            st.dataframe(df, use_container_width=True, height=400)
 
 def display_stage2_results():
     """Display Stage 2 results"""

@@ -363,14 +363,27 @@ def run_deliverables_calculation(usdinr_rate: float, account_prefix=""):
         return
 
     try:
-        if 'dataframes' not in st.session_state or 'stage1' not in st.session_state.dataframes:
-            st.error("Please complete Stage 1 first")
+        # Check if we have position data from either full pipeline or position-only mode
+        has_stage1 = 'dataframes' in st.session_state and 'stage1' in st.session_state.dataframes
+        has_positions_only = 'dataframes' in st.session_state and 'positions_only' in st.session_state.dataframes
+
+        if not has_stage1 and not has_positions_only:
+            st.error("No position data available for deliverables calculation")
             return
 
         with st.spinner("Calculating deliverables and intrinsic values..."):
-            stage1_data = st.session_state.dataframes['stage1']
-            starting_positions = stage1_data.get('starting_positions', pd.DataFrame())
-            final_positions = stage1_data.get('final_positions', pd.DataFrame())
+            # Get positions from whichever source is available
+            if has_stage1:
+                # Full pipeline mode - has pre and post positions
+                stage1_data = st.session_state.dataframes['stage1']
+                starting_positions = stage1_data.get('starting_positions', pd.DataFrame())
+                final_positions = stage1_data.get('final_positions', pd.DataFrame())
+            else:
+                # Position-only mode - just current positions (use same for both)
+                positions_data = st.session_state.dataframes['positions_only']
+                current_positions = positions_data.get('current_positions', pd.DataFrame())
+                starting_positions = current_positions
+                final_positions = current_positions
 
             # Use centralized price manager
             prices = {}
@@ -479,15 +492,27 @@ def run_expiry_delivery_generation(account_prefix=""):
         return
 
     try:
-        if 'dataframes' not in st.session_state or 'stage1' not in st.session_state.dataframes:
-            st.error("Please complete Stage 1 first")
+        # Check if we have position data from either full pipeline or position-only mode
+        has_stage1 = 'dataframes' in st.session_state and 'stage1' in st.session_state.dataframes
+        has_positions_only = 'dataframes' in st.session_state and 'positions_only' in st.session_state.dataframes
+
+        if not has_stage1 and not has_positions_only:
+            st.error("No position data available for expiry delivery generation")
             return
 
         with st.spinner("Generating expiry delivery reports..."):
-            # Get positions from Stage 1
-            stage1_data = st.session_state.dataframes['stage1']
-            starting_positions = stage1_data.get('starting_positions', pd.DataFrame())
-            final_positions = stage1_data.get('final_positions', pd.DataFrame())
+            # Get positions from whichever source is available
+            if has_stage1:
+                # Full pipeline mode
+                stage1_data = st.session_state.dataframes['stage1']
+                starting_positions = stage1_data.get('starting_positions', pd.DataFrame())
+                final_positions = stage1_data.get('final_positions', pd.DataFrame())
+            else:
+                # Position-only mode
+                positions_data = st.session_state.dataframes['positions_only']
+                current_positions = positions_data.get('current_positions', pd.DataFrame())
+                starting_positions = current_positions
+                final_positions = current_positions
 
             # Check if we have positions
             if starting_positions.empty and final_positions.empty:
@@ -724,19 +749,15 @@ def run_pms_reconciliation(pms_file, position_file=None, position_password=None,
                     'pms_df': pms_df
                 }
 
-                # IMPORTANT: Also populate stage1 data so deliverables can be calculated
-                # Even though we didn't run full Stage 1, we have positions that can be used
+                # IMPORTANT: Store positions for deliverables WITHOUT marking stage1 as complete
+                # This is PMS-only mode, not full pipeline, so don't set stage1_complete
                 if 'dataframes' not in st.session_state:
                     st.session_state.dataframes = {}
 
-                st.session_state.dataframes['stage1'] = {
-                    'starting_positions': current_positions_df,
-                    'final_positions': current_positions_df,  # Same for simple mode
-                    'processed_trades': None  # No trades in simple mode
+                # Store positions separately for deliverables (not as stage1 data)
+                st.session_state.dataframes['positions_only'] = {
+                    'current_positions': current_positions_df
                 }
-
-                # Mark stage1 as complete so deliverables can run
-                st.session_state.stage1_complete = True
 
                 st.success(f"✅ Position reconciliation complete!")
 
