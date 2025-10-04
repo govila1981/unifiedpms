@@ -31,92 +31,149 @@ except ImportError:
     SIMPLE_PRICE_MANAGER_AVAILABLE = False
 
 def display_pipeline_overview():
-    """Display pipeline overview"""
-    st.header("Pipeline Overview")
-    
-    col1, col2, col3 = st.columns([1, 0.1, 1])
-    
+    """Display flexible workflow system overview"""
+    st.header("System Overview")
+
+    # Show detected account
+    if st.session_state.get('detected_account'):
+        account = st.session_state.detected_account
+        st.success(f"🔍 Detected Account: **{account['name']}** ({account['cp_code']})")
+
+    st.markdown("---")
+
+    # Flexible Workflow System
+    st.subheader("📋 Available Workflows")
+    st.caption("System automatically runs workflows based on uploaded files")
+
+    col1, col2 = st.columns(2)
+
     with col1:
-        st.markdown('<div class="stage-header">Stage 1: Strategy Processing</div>', unsafe_allow_html=True)
+        # Full Pipeline
+        st.markdown('<div class="stage-header">Full Trade Processing Pipeline</div>', unsafe_allow_html=True)
         st.info("""
-        **Input:**
-        - Position File
-        - Trade File
-        - Symbol Mapping
-        
-        **Processing:**
-        - Bloomberg ticker generation
-        - FULO/FUSH strategy assignment
-        - Trade splitting
-        - Position tracking
-        
-        **Output:**
-        - Processed trades with strategies
-        - Position summaries
+        **Required Files:** Clearing Position + Clearing Trades
+
+        **Stages:**
+        1. **Strategy Processing** - FULO/FUSH assignment, trade splitting
+        2. **ACM Mapping** - Field mapping for ACM system
+        3. **Deliverables Calculation** - Physical delivery analysis
+        4. **Expiry Delivery Reports** - Expiring position handling
+
+        **Outputs:** ACM CSV, positions, deliverables, expiry reports
         """)
-        
-        if st.session_state.stage1_complete:
+
+        if st.session_state.get('stage1_complete'):
             st.success("✅ Stage 1 Complete")
-    
-    with col2:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        st.markdown("## →", unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown('<div class="stage-header">Stage 2: ACM Mapping</div>', unsafe_allow_html=True)
-        st.info("""
-        **Input:**
-        - Processed trades from Stage 1
-        - ACM schema
-        
-        **Processing:**
-        - Field mapping
-        - Transaction type logic
-        - Validation
-        
-        **Output:**
-        - ACM ListedTrades CSV
-        - Error report
-        """)
-        
-        if st.session_state.stage2_complete:
+        if st.session_state.get('stage2_complete'):
             st.success("✅ Stage 2 Complete")
-    
-    # Additional features overview
-    if any([st.session_state.get('enable_deliverables'), 
-            st.session_state.get('enable_expiry_delivery'),
-            st.session_state.get('enable_recon')]):
-        st.markdown("### Enhanced Features Enabled")
-        
+        if st.session_state.get('deliverables_complete'):
+            st.success("✅ Deliverables Complete")
+        if st.session_state.get('expiry_deliveries_complete'):
+            st.success("✅ Expiry Delivery Complete")
+
+    with col2:
+        # PMS Reconciliation
+        st.markdown('<div class="stage-header">PMS Position Reconciliation</div>', unsafe_allow_html=True)
+        st.info("""
+        **Required Files:** Clearing Position + PMS Position File
+
+        **Modes:**
+        - **Simple:** Current positions vs PMS
+        - **Complex:** Pre-trade + Post-trade vs PMS (if clearing trades present)
+
+        **Analysis:**
+        - Position matching
+        - Quantity mismatches
+        - Missing positions
+
+        **Output:** Reconciliation report with discrepancies
+        """)
+
+        if st.session_state.get('recon_complete'):
+            recon_data = st.session_state.get('recon_data', {})
+            pre_recon = recon_data.get('pre_trade', {})
+            summary = pre_recon.get('summary', {})
+            total_issues = summary.get('total_discrepancies', 0)
+
+            if total_issues == 0:
+                st.success(f"✅ Reconciliation Complete - All Matched!")
+            else:
+                st.warning(f"⚠️ Reconciliation Complete - {total_issues} discrepancies")
+
+    st.markdown("---")
+
+    # Additional Workflows
+    col3, col4 = st.columns(2)
+
+    with col3:
+        st.markdown('<div class="stage-header">Broker Reconciliation</div>', unsafe_allow_html=True)
+        st.info("""
+        **Required Files:** Clearing Trades + Broker Trades (multiple OK)
+
+        **Analysis:**
+        - Trade breaks
+        - Commission analysis
+        - Brokerage calculations
+        - Tax validation
+
+        **Output:** 5-sheet Excel with detailed analysis
+        """)
+
+        if st.session_state.get('broker_recon_complete'):
+            st.success("✅ Broker Recon Complete")
+
+    with col4:
+        st.markdown('<div class="stage-header">Price Management</div>', unsafe_allow_html=True)
+        st.info("""
+        **Sources:**
+        - Override prices from CSV (default_stocks.csv)
+        - Yahoo Finance auto-fetch
+        - Manual price upload
+
+        **Features:**
+        - Missing symbol detection
+        - Downloadable updated prices
+        - Persistent price storage
+        """)
+
+        if st.session_state.get('price_manager'):
+            pm = st.session_state.price_manager
+            missing = len(pm.missing_symbols) if hasattr(pm, 'missing_symbols') else 0
+            if missing > 0:
+                st.warning(f"⚠️ {missing} symbols missing prices")
+            else:
+                st.success("✅ All prices loaded")
+
+    st.markdown("---")
+
+    # Quick Stats
+    if st.session_state.get('stage1_complete'):
+        st.subheader("📊 Processing Summary")
         cols = st.columns(4)
-        feature_idx = 0
-        
-        if st.session_state.get('enable_deliverables'):
-            with cols[feature_idx % 4]:
-                st.markdown("**💰 Deliverables/IV**")
-                if st.session_state.get('deliverables_complete'):
-                    st.success("✅ Complete")
-                else:
-                    st.info("⏳ Pending")
-            feature_idx += 1
-        
-        if st.session_state.get('enable_expiry_delivery'):
-            with cols[feature_idx % 4]:
-                st.markdown("**📅 Expiry Deliveries**")
-                if st.session_state.get('expiry_deliveries_complete'):
-                    files = st.session_state.get('expiry_delivery_files', {})
-                    st.success(f"✅ {len(files)} files")
-                else:
-                    st.info("⏳ Pending")
-            feature_idx += 1
-        
-        if st.session_state.get('enable_recon'):
-            with cols[feature_idx % 4]:
-                st.markdown("**🔄 PMS Reconciliation**")
-                if st.session_state.get('recon_complete'):
-                    st.success("✅ Complete")
-                else:
-                    st.info("⏳ Pending")
+
+        stage1_data = st.session_state.get('dataframes', {}).get('stage1', {})
+
+        with cols[0]:
+            processed_trades = stage1_data.get('processed_trades')
+            if processed_trades is not None:
+                st.metric("Trades Processed", len(processed_trades))
+
+        with cols[1]:
+            final_positions = stage1_data.get('final_positions')
+            if final_positions is not None:
+                st.metric("Final Positions", len(final_positions))
+
+        with cols[2]:
+            if st.session_state.get('recon_complete'):
+                recon_data = st.session_state.get('recon_data', {})
+                pre_recon = recon_data.get('pre_trade', {})
+                summary = pre_recon.get('summary', {})
+                total_issues = summary.get('total_discrepancies', 0)
+                st.metric("PMS Discrepancies", total_issues)
+
+        with cols[3]:
+            if st.session_state.get('broker_recon_complete'):
+                st.metric("Broker Recon", "✅")
 
 def display_stage1_results():
     """Display Stage 1 results"""

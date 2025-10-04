@@ -772,14 +772,48 @@ def run_broker_reconciliation(trade_file, broker_files, mapping_file, account_pr
             st.info(f"🗂️ Output directory: {Path(output_base).absolute()}")
             reconciler = TradeReconciler(output_dir=output_base, account_prefix=account_prefix)
 
-            # Set trade date from Stage 1 if available
+            # Set trade date from Stage 1 if available, otherwise extract from clearing file
+            trade_date_str = None
             if hasattr(st.session_state, 'stage1_outputs') and st.session_state.get('dataframes', {}).get('stage1'):
                 processed_trades_df = st.session_state['dataframes']['stage1'].get('processed_trades')
                 if processed_trades_df is not None and not processed_trades_df.empty:
                     from output_generator import OutputGenerator
                     temp_gen = OutputGenerator()
                     trade_date_str = temp_gen._extract_trade_date(processed_trades_df)
-                    reconciler.set_trade_date(trade_date_str)
+
+            # If no Stage 1 data, extract trade date directly from clearing file
+            if not trade_date_str:
+                try:
+                    # Parse clearing file to get trade date
+                    from Trade_Parser import Trade_Parser
+                    temp_parser = Trade_Parser()
+
+                    # Save clearing file temporarily
+                    temp_dir = get_temp_dir()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', dir=temp_dir) as tmp:
+                        tmp.write(trade_file.getbuffer())
+                        temp_clearing_path = tmp.name
+
+                    # Parse to get trades
+                    trades = temp_parser.parse_trade_file(temp_clearing_path)
+                    if trades and len(trades) > 0:
+                        # Extract date from first trade
+                        first_trade = trades[0]
+                        if hasattr(first_trade, 'trade_date') and first_trade.trade_date:
+                            trade_date_str = first_trade.trade_date.strftime("%d-%b-%Y")
+                            logger.info(f"Extracted trade date from clearing file: {trade_date_str}")
+
+                    # Cleanup temp file
+                    try:
+                        os.unlink(temp_clearing_path)
+                    except:
+                        pass
+                except Exception as e:
+                    logger.warning(f"Could not extract trade date from clearing file: {e}")
+
+            # Set the trade date if we found it
+            if trade_date_str:
+                reconciler.set_trade_date(trade_date_str)
 
             # Run reconciliation
             result = reconciler.reconcile(
