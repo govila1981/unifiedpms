@@ -327,6 +327,35 @@ def smart_process_everything(position_file, position_password, clearing_file, cl
     elif pms_file and not position_file:
         results['workflows_skipped'].append("PMS Reconciliation (no position file)")
 
+    # 4. DELIVERABLES & EXPIRY DELIVERY (if positions are available from any workflow)
+    # This runs whenever we have positions, regardless of whether it's from full pipeline or PMS-only mode
+    if st.session_state.get('stage1_complete') or st.session_state.get('recon_complete'):
+        # Check if we have position data available
+        has_positions = False
+
+        # Check Stage 1 positions (full pipeline)
+        if st.session_state.get('dataframes', {}).get('stage1', {}).get('final_positions') is not None:
+            has_positions = True
+
+        # Check if PMS recon created positions (simple mode - position + PMS only)
+        elif st.session_state.get('recon_data', {}).get('pre_trade', {}).get('summary', {}).get('total_system_positions', 0) > 0:
+            has_positions = True
+
+        if has_positions:
+            # Run deliverables calculation
+            if NEW_FEATURES_AVAILABLE and not st.session_state.get('deliverables_complete'):
+                st.info("💰 Calculating deliverables from positions...")
+                run_deliverables_calculation(usdinr_rate, account_prefix)
+                if "Deliverables Calculation" not in results['workflows_run']:
+                    results['workflows_run'].append("Deliverables Calculation")
+
+            # Run expiry delivery generation
+            if EXPIRY_DELIVERY_AVAILABLE and not st.session_state.get('expiry_deliveries_complete'):
+                st.info("📅 Generating expiry delivery reports...")
+                run_expiry_delivery_generation(account_prefix)
+                if "Expiry Delivery Reports" not in results['workflows_run']:
+                    results['workflows_run'].append("Expiry Delivery Reports")
+
     return results
 
 

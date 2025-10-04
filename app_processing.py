@@ -724,6 +724,20 @@ def run_pms_reconciliation(pms_file, position_file=None, position_password=None,
                     'pms_df': pms_df
                 }
 
+                # IMPORTANT: Also populate stage1 data so deliverables can be calculated
+                # Even though we didn't run full Stage 1, we have positions that can be used
+                if 'dataframes' not in st.session_state:
+                    st.session_state.dataframes = {}
+
+                st.session_state.dataframes['stage1'] = {
+                    'starting_positions': current_positions_df,
+                    'final_positions': current_positions_df,  # Same for simple mode
+                    'processed_trades': None  # No trades in simple mode
+                }
+
+                # Mark stage1 as complete so deliverables can run
+                st.session_state.stage1_complete = True
+
                 st.success(f"✅ Position reconciliation complete!")
 
             st.session_state.recon_file = output_file
@@ -788,20 +802,34 @@ def run_broker_reconciliation(trade_file, broker_files, mapping_file, account_pr
                     from Trade_Parser import Trade_Parser
                     temp_parser = Trade_Parser()
 
+                    # Reset file pointer to beginning before reading
+                    trade_file.seek(0)
+
                     # Save clearing file temporarily
                     temp_dir = get_temp_dir()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', dir=temp_dir) as tmp:
-                        tmp.write(trade_file.getbuffer())
+                    suffix = '.csv' if trade_file.name.endswith('.csv') else '.xlsx'
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=temp_dir) as tmp:
+                        tmp.write(trade_file.read())
                         temp_clearing_path = tmp.name
 
+                    # Reset file pointer again for later use
+                    trade_file.seek(0)
+
                     # Parse to get trades
+                    logger.info(f"Parsing clearing file to extract trade date: {temp_clearing_path}")
                     trades = temp_parser.parse_trade_file(temp_clearing_path)
+                    logger.info(f"Parsed {len(trades) if trades else 0} trades from clearing file")
+
                     if trades and len(trades) > 0:
                         # Extract date from first trade
                         first_trade = trades[0]
                         if hasattr(first_trade, 'trade_date') and first_trade.trade_date:
                             trade_date_str = first_trade.trade_date.strftime("%d-%b-%Y")
-                            logger.info(f"Extracted trade date from clearing file: {trade_date_str}")
+                            logger.info(f"✓ Extracted trade date from clearing file: {trade_date_str}")
+                        else:
+                            logger.warning(f"First trade has no trade_date attribute")
+                    else:
+                        logger.warning(f"No trades parsed from clearing file")
 
                     # Cleanup temp file
                     try:
@@ -809,7 +837,9 @@ def run_broker_reconciliation(trade_file, broker_files, mapping_file, account_pr
                     except:
                         pass
                 except Exception as e:
-                    logger.warning(f"Could not extract trade date from clearing file: {e}")
+                    logger.error(f"Could not extract trade date from clearing file: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
 
             # Set the trade date if we found it
             if trade_date_str:
